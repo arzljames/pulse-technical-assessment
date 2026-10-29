@@ -1,28 +1,68 @@
 @import "tailwindcss";
 
+/* Pulse is dark-only: it's a night-sky globe, not a document. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #06070b;
+  --foreground: #f4f5fa;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  /* Brand */
+  --color-ink: #06070b; /* page */
+  --color-surface: #0e1017; /* chips, cards */
+  --color-line: #1d2030; /* hairline borders */
+  --color-accent: #8fa2ff; /* periwinkle — primary action, live dots */
+  --color-accent-strong: #a9b7ff;
+  --color-ember: #f59e6b; /* warm secondary dot */
+  --color-live: #34d399; /* "online" indicator */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Staggered entrance: add .rise and set --rise-delay inline. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--rise-delay, 0ms);
+}
+
+@keyframes live-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.live-blink {
+  animation: live-blink 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .live-blink {
+    animation: none;
+  }
 }
 
 /* Live user dots on the map */
