@@ -7,6 +7,7 @@ export interface ChatMessage {
   mine: boolean;
   text: string;
   at: number; // epoch ms, local clock
+  system?: boolean; // centered event line ("Video call started · 7:04 AM")
 }
 
 // How often we tell the peer "I'm typing" while keys are pressed.
@@ -33,6 +34,7 @@ export default function ChatPanel({
   onEnd,
   onSkip,
   videoSlot,
+  inCall = false,
 }: {
   messages: ChatMessage[];
   connected: boolean;
@@ -46,6 +48,9 @@ export default function ChatPanel({
   onSkip: () => void;
   // Video request card (incoming / outgoing), shown above the composer.
   videoSlot?: ReactNode;
+  // A video call is live: on mobile the sheet shrinks so the video gets the
+  // top of the screen.
+  inCall?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -84,9 +89,10 @@ export default function ChatPanel({
   return (
     <section
       aria-label="Chat with stranger"
-      // Mobile sheet grows while a video card is showing, so messages stay visible.
+      // Mobile sheet: grows while a video card is showing so messages stay
+      // visible, shrinks during a call so the video gets the top half.
       className={`chat-panel absolute inset-x-0 bottom-0 z-20 flex ${
-        videoSlot ? "h-[85dvh]" : "h-[62dvh]"
+        inCall ? "h-[55dvh]" : videoSlot ? "h-[85dvh]" : "h-[62dvh]"
       } flex-col rounded-t-3xl transition-[height] duration-300 border-t border-line bg-[#0a0c12]/95 text-foreground shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.8)] backdrop-blur-xl sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:h-auto sm:w-[400px] sm:rounded-none sm:border-l sm:border-t-0`}
     >
       {/* Grab handle (mobile sheet only, decorative). */}
@@ -155,7 +161,14 @@ export default function ChatPanel({
           </p>
         )}
 
-        {messages.map((m) => (
+        {messages.map((m) =>
+          m.system ? (
+            <div key={m.id} className="msg-in flex justify-center">
+              <span className="rounded-full border border-line bg-surface px-3 py-1 text-[11px] text-zinc-400">
+                {m.text} · {formatTime(m.at)}
+              </span>
+            </div>
+          ) : (
           <div
             key={m.id}
             className={`msg-in flex flex-col ${m.mine ? "items-end" : "items-start"}`}
@@ -173,7 +186,8 @@ export default function ChatPanel({
               {formatTime(m.at)}
             </time>
           </div>
-        ))}
+          ),
+        )}
 
         {peerTyping && (
           <div className="msg-in flex" aria-label="Stranger is typing">

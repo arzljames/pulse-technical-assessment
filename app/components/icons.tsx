@@ -84,3 +84,22 @@ export function XIcon({ size = 14 }: IconProps) {
     </svg>
   );
 }
+
+export function MapIcon({ size = 16 }: IconProps) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+      <path d="M9 4v14M15 6v14" />
+    </svg>
+  );
+}
+
+export function VideoOffIcon({ size = 16 }: IconProps) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <path d="M16 16v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2" />
+      <path d="M10 5h4a2 2 0 0 1 2 2v3l6-3v10" />
+      <path d="M2 2l20 20" />
+    </svg>
+  );
+}
