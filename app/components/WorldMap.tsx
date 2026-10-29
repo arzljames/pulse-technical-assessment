@@ -184,9 +184,13 @@ export default function WorldMap({
         </div>
       )}
 
-      {/* Online count */}
-      <div className="absolute bottom-4 left-4 rounded-full bg-zinc-900/80 px-3 py-1.5 text-xs text-zinc-300 backdrop-blur">
-        {peers.length} online
+      {/* Online count (including you) */}
+      <div className="absolute right-3 top-3 flex items-center gap-2 rounded-full border border-line bg-ink/80 px-3 py-1.5 text-xs backdrop-blur sm:right-4 sm:top-4">
+        <span className="h-1.5 w-1.5 rounded-full bg-live" />
+        <span className="font-semibold tabular-nums">
+          {(peers.length + (me ? 1 : 0)).toLocaleString("en-US")}
+        </span>
+        <span className="text-zinc-400">online worldwide</span>
       </div>
     </div>
   );

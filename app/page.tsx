@@ -7,6 +7,7 @@ import RequestModal from "./components/RequestModal";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import { IncomingVideoCard, OutgoingVideoCard } from "./components/VideoRequestCard";
 import VideoPanel from "./components/VideoPanel";
+import StatsPanel from "./components/StatsPanel";
 import { join, leave, poll, sendSignal } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
@@ -728,6 +729,16 @@ export default function Home() {
         onPeerClick={requestConnection}
         canConnect={conn.kind === "idle"}
       />
+
+      {/* Hidden during a video call, whose stage covers the map. */}
+      {video !== "active" && (
+        <StatsPanel
+          peers={visiblePeers}
+          me={myLocation}
+          canConnect={conn.kind === "idle"}
+          onConnect={requestConnection}
+        />
+      )}
 
       {notice && (
         <div
