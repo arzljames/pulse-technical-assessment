@@ -71,6 +71,7 @@ export default function Home() {
   const [videoDeadline, setVideoDeadline] = useState<number | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
 
   const [conn, _setConn] = useState<Conn>({ kind: "idle" });
   const connRef = useRef<Conn>(conn);
@@ -111,6 +112,26 @@ export default function Home() {
     ]);
   }
 
+  // Centered event line in the chat, e.g. "Video call started · 7:04 AM".
+  function addSystemMessage(text: string) {
+    setMessages((prev) => [
+      ...prev,
+      { id: msgId.current++, mine: false, text, at: Date.now(), system: true },
+    ]);
+  }
+
+  function callStarted() {
+    setVideo("active");
+    setCallStartedAt(Date.now());
+    addSystemMessage("Video call started");
+  }
+
+  // Called before the video state is reset, by whichever side hangs up.
+  function callEnded() {
+    if (videoRef.current === "active") addSystemMessage("Video call ended");
+    setCallStartedAt(null);
+  }
+
   function setTyping(on: boolean) {
     if (typingTimer.current) clearTimeout(typingTimer.current);
     setPeerTyping(on);
@@ -145,6 +166,7 @@ export default function Home() {
     setRemoteStream(null);
     setVideo("none");
     setVideoDeadline(null);
+    setCallStartedAt(null);
     setRequestDeadline(null);
     setMessages([]);
     setTyping(false);
@@ -252,7 +274,7 @@ export default function Home() {
           ps.startVideo(preview)
             .then((stream) => {
               setLocalStream(stream);
-              setVideo("active");
+              callStarted();
             })
             .catch(() => {
               resetVideoRequest();
@@ -269,6 +291,7 @@ export default function Home() {
         break;
       case "video-end":
         // Covers both "they cancelled their request" and "they hung up".
+        callEnded();
         resetVideoRequest();
         ps?.stopVideo();
         setRemoteStream(null);
@@ -330,7 +353,7 @@ export default function Home() {
       .then((stream) => {
         setLocalStream(stream);
         ps.sendControl("video-accept");
-        setVideo("active");
+        callStarted();
       })
       .catch(() => {
         ps.sendControl("video-decline");
@@ -348,6 +371,7 @@ export default function Home() {
     const ps = peerRef.current;
     ps?.stopVideo();
     ps?.sendControl("video-end");
+    callEnded();
     resetVideoRequest();
     setRemoteStream(null);
   }
@@ -714,6 +738,7 @@ export default function Home() {
           onStartVideo={() => void startVideoRequest()}
           onEnd={endConnection}
           onSkip={skipToNext}
+          inCall={video === "active"}
           videoSlot={
             video === "incoming" && videoDeadline ? (
               <IncomingVideoCard
@@ -738,10 +763,16 @@ export default function Home() {
         />
       )}
 
-      {video === "active" && (
+      {video === "active" && callStartedAt !== null && (
         <VideoPanel
           localStream={localStream}
           remoteStream={remoteStream}
+          peerLabel={focusPlace ? `Stranger · ${focusPlace.name}` : "Stranger"}
+          startedAt={callStartedAt}
+          micOn={micOn}
+          camOn={camOn}
+          onToggleMic={toggleMic}
+          onToggleCam={toggleCam}
           onEnd={endVideo}
         />
       )}
