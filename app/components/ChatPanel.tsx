@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export interface ChatMessage {
   id: number;
@@ -32,10 +32,11 @@ export default function ChatPanel({
   onStartVideo,
   onEnd,
   onSkip,
+  videoSlot,
 }: {
   messages: ChatMessage[];
   connected: boolean;
-  videoBusy: boolean;
+  videoBusy: boolean; // a video request/call is in progress
   peerPlace: string | null;
   peerTyping: boolean;
   onSend: (text: string) => void;
@@ -43,6 +44,8 @@ export default function ChatPanel({
   onStartVideo: () => void;
   onEnd: () => void;
   onSkip: () => void;
+  // Video request card (incoming / outgoing), shown above the composer.
+  videoSlot?: ReactNode;
 }) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -81,7 +84,10 @@ export default function ChatPanel({
   return (
     <section
       aria-label="Chat with stranger"
-      className="chat-panel absolute inset-x-0 bottom-0 z-20 flex h-[62dvh] flex-col rounded-t-3xl border-t border-line bg-[#0a0c12]/95 text-foreground shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.8)] backdrop-blur-xl sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:h-auto sm:w-[400px] sm:rounded-none sm:border-l sm:border-t-0"
+      // Mobile sheet grows while a video card is showing, so messages stay visible.
+      className={`chat-panel absolute inset-x-0 bottom-0 z-20 flex ${
+        videoSlot ? "h-[85dvh]" : "h-[62dvh]"
+      } flex-col rounded-t-3xl transition-[height] duration-300 border-t border-line bg-[#0a0c12]/95 text-foreground shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.8)] backdrop-blur-xl sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:h-auto sm:w-[400px] sm:rounded-none sm:border-l sm:border-t-0`}
     >
       {/* Grab handle (mobile sheet only, decorative). */}
       <div aria-hidden className="flex justify-center pt-2.5 sm:hidden">
@@ -113,8 +119,13 @@ export default function ChatPanel({
           onClick={onStartVideo}
           disabled={!connected || videoBusy}
           aria-label="Start video call"
+          aria-pressed={videoBusy}
           title="Start video call"
-          className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-line bg-surface text-zinc-300 transition hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+          className={`flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border transition disabled:cursor-not-allowed ${
+            videoBusy
+              ? "border-accent bg-accent text-ink"
+              : "border-line bg-surface text-zinc-300 hover:border-zinc-600 hover:text-white disabled:opacity-40"
+          }`}
         >
           <CameraIcon />
         </button>
@@ -150,7 +161,7 @@ export default function ChatPanel({
             className={`msg-in flex flex-col ${m.mine ? "items-end" : "items-start"}`}
           >
             <p
-              className={`max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm leading-snug ${
+              className={`max-w-[80%] whitespace-pre-wrap wrap-break-word rounded-2xl px-3.5 py-2 text-sm leading-snug ${
                 m.mine
                   ? "bg-accent text-ink"
                   : "bg-[#1a1d27] text-zinc-100"
@@ -175,6 +186,8 @@ export default function ChatPanel({
         )}
         <div ref={endRef} />
       </div>
+
+      {videoSlot && <div className="px-3 pb-3">{videoSlot}</div>}
 
       <form
         onSubmit={submit}

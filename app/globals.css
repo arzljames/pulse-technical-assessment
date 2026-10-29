@@ -89,6 +89,22 @@ body {
   }
 }
 
+/* Centered modals scale in. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.modal-in {
+  animation: modal-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
 /* New chat bubbles pop in. */
 @keyframes msg-in {
   from {
@@ -131,6 +147,7 @@ body {
   .rise,
   .live-blink,
   .chat-panel,
+  .modal-in,
   .msg-in,
   .typing-dot {
     animation: none;
