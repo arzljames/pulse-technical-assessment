@@ -126,9 +126,10 @@ export default function WorldMap({
           const el = document.createElement("button");
           el.className = "pulse-dot";
           el.style.background = dotColor(peer.id);
-          el.title = "Tap to connect";
           el.addEventListener("click", (e) => {
             e.stopPropagation();
+            // Busy peers would just auto-decline — don't send the request.
+            if (el.getAttribute("aria-disabled") === "true") return;
             if (canConnectRef.current) onPeerClickRef.current(peer.id);
           });
           marker = new mapboxgl.Marker({ element: el })
@@ -143,7 +144,16 @@ export default function WorldMap({
             marker.setLngLat([peer.lng, peer.lat]);
           }
         }
-        marker.getElement().style.opacity = peer.busy ? "0.35" : "1";
+        // Busy state lives on the element so the click handler (bound once)
+        // always sees the latest value.
+        const el = marker.getElement();
+        el.style.opacity = peer.busy ? "0.35" : "1";
+        el.setAttribute("aria-disabled", String(peer.busy));
+        el.title = peer.busy ? "In a conversation" : "Tap to connect";
+        el.setAttribute(
+          "aria-label",
+          peer.busy ? "Stranger, in a conversation" : "Stranger, tap to connect",
+        );
       }
 
       // Drop markers for peers that went offline / got filtered out.
