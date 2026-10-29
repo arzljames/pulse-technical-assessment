@@ -49,6 +49,9 @@ export default function Home() {
   };
 
   const peerRef = useRef<PeerSession | null>(null);
+  // Raw location, kept client-side only so we can re-join if our presence
+  // row is reaped. Never sent anywhere except /api/join.
+  const locationRef = useRef<{ lat: number; lng: number } | null>(null);
   const msgId = useRef(0);
   const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -284,6 +287,12 @@ export default function Home() {
       try {
         const data = await poll(sessionId);
         if (!active) return;
+        // Our presence row is gone (throttled background tab, bfcache
+        // restore, failed initial join) — put ourselves back on the map.
+        if (!data.joined && locationRef.current) {
+          const { lat, lng } = locationRef.current;
+          await join(sessionId, lat, lng);
+        }
         setPeers(data.peers);
         for (const s of data.signals) processSignalRef.current(s);
       } catch {}
@@ -299,21 +308,29 @@ export default function Home() {
 
   useEffect(() => {
     if (!sessionId || phase !== "live") return;
-    const onLeave = () => {
+    // pagehide covers tab close, reload and navigation on every browser.
+    // (beforeunload is redundant and can make the page bfcache-ineligible.)
+    const onLeave = (e: PageTransitionEvent) => {
+      // Going into the back/forward cache, not unloading: keep the session.
+      // If it's restored after STALE_MS, the next poll re-joins.
+      if (e.persisted) return;
       const c = connRef.current;
       leave(sessionId, c.kind === "idle" ? undefined : c.peerId);
     };
     window.addEventListener("pagehide", onLeave);
-    window.addEventListener("beforeunload", onLeave);
     return () => {
       window.removeEventListener("pagehide", onLeave);
-      window.removeEventListener("beforeunload", onLeave);
     };
   }, [sessionId, phase]);
 
   async function handleReady(lat: number, lng: number) {
     setMyLocation({ lat, lng });
-    await join(sessionId, lat, lng);
+    locationRef.current = { lat, lng };
+    try {
+      await join(sessionId, lat, lng);
+    } catch {
+      // Not fatal: the first poll reports joined=false and retries the join.
+    }
     setPhase("live");
   }
 
