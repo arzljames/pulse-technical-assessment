@@ -21,6 +21,9 @@ type Conn =
 type VideoState = "none" | "requesting" | "incoming" | "active";
 
 const REQUEST_TIMEOUT_MS = 30_000;
+// Max time from accept until the data channel opens. Covers a lost or
+// ignored accept, a peer that vanished mid-handshake, and stalled ICE.
+const CONNECT_TIMEOUT_MS = 20_000;
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
@@ -54,6 +57,7 @@ export default function Home() {
   const locationRef = useRef<{ lat: number; lng: number } | null>(null);
   const msgId = useRef(0);
   const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showNotice(text: string) {
     setNotice(text);
@@ -66,6 +70,7 @@ export default function Home() {
 
   function teardown(message?: string) {
     if (requestTimer.current) clearTimeout(requestTimer.current);
+    if (connectTimer.current) clearTimeout(connectTimer.current);
     peerRef.current?.close();
     peerRef.current = null;
     setLocalStream(null);
@@ -74,6 +79,18 @@ export default function Home() {
     setMessages([]);
     setConn({ kind: "idle" });
     if (message) showNotice(message);
+  }
+
+  // Give up if we're still "connecting" to this peer after CONNECT_TIMEOUT_MS.
+  function startConnectTimeout(peerId: string) {
+    if (connectTimer.current) clearTimeout(connectTimer.current);
+    connectTimer.current = setTimeout(() => {
+      const c = connRef.current;
+      if (c.kind === "connecting" && c.peerId === peerId) {
+        void sendSignal(sessionId, peerId, "end");
+        teardown("Couldn't connect.");
+      }
+    }, CONNECT_TIMEOUT_MS);
   }
 
   function startPeer(peerId: string, initiator: boolean) {
@@ -92,6 +109,7 @@ export default function Home() {
         }
       },
       onChannelOpen: () => {
+        if (connectTimer.current) clearTimeout(connectTimer.current);
         setConn({ kind: "connected", peerId });
       },
       onChannelClose: () => {
@@ -168,6 +186,7 @@ export default function Home() {
     startPeer(peerId, false);
     void sendSignal(sessionId, peerId, "accept");
     setConn({ kind: "connecting", peerId });
+    startConnectTimeout(peerId);
   }
 
   function declineIncoming() {
@@ -236,6 +255,12 @@ export default function Home() {
           if (requestTimer.current) clearTimeout(requestTimer.current);
           startPeer(sig.fromId, true);
           setConn({ kind: "connecting", peerId: sig.fromId });
+          startConnectTimeout(sig.fromId);
+        } else if (c.kind === "idle" || c.peerId !== sig.fromId) {
+          // An accept we're no longer waiting for (we cancelled or timed out
+          // as they accepted). Tell them, so they don't sit on "Connecting…"
+          // and the server frees their busy flag.
+          void sendSignal(sessionId, sig.fromId, "end");
         }
         break;
       }
