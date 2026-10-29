@@ -34,9 +34,10 @@ export async function sendSignal(
   });
 }
 
-// Fire-and-forget leave that survives the tab closing.
-export function leave(id: string): void {
-  const body = JSON.stringify({ id });
+// Fire-and-forget leave that survives the tab closing. Pass the current peer
+// (if any) so the server can end the connection for them too.
+export function leave(id: string, peerId?: string): void {
+  const body = JSON.stringify({ id, peerId });
   if (typeof navigator !== "undefined" && navigator.sendBeacon) {
     navigator.sendBeacon("/api/leave", body);
   } else {

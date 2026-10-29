@@ -4,14 +4,19 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST /api/leave — body { id }. Removes the presence row and any pending
-// signals to/from this user. Called via navigator.sendBeacon on tab close, so
-// the body may arrive as text — parse defensively.
+// POST /api/leave — body { id, peerId? }. Removes the presence row and any
+// pending signals to/from this user. If the user was mid-connection, `peerId`
+// is the other side: free them and tell them the connection ended. Called via
+// navigator.sendBeacon on tab close, so the body may arrive as text — parse
+// defensively.
 export async function POST(request: NextRequest) {
-  let id: string | undefined;
+  let id: unknown;
+  let peerId: unknown;
   try {
     const text = await request.text();
-    id = text ? (JSON.parse(text)?.id as string | undefined) : undefined;
+    const parsed = text ? JSON.parse(text) : undefined;
+    id = parsed?.id;
+    peerId = parsed?.peerId;
   } catch {
     id = undefined;
   }
@@ -26,6 +31,17 @@ export async function POST(request: NextRequest) {
     where: { OR: [{ toId: id }, { fromId: id }] },
   });
   await prisma.presence.deleteMany({ where: { id } });
+
+  // Created after the cleanup above so it isn't deleted with the rest.
+  if (typeof peerId === "string" && peerId && peerId !== id) {
+    await prisma.presence.updateMany({
+      where: { id: peerId },
+      data: { busy: false },
+    });
+    await prisma.signal.create({
+      data: { fromId: id, toId: peerId, type: "end", payload: null },
+    });
+  }
 
   return Response.json({ ok: true });
 }
