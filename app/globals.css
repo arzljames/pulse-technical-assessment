@@ -42,6 +42,16 @@ body {
   transform: scale(1.3);
 }
 
+/* Busy peers: no hover affordance, no pulse — they can't be requested. */
+.pulse-dot[aria-disabled="true"] {
+  cursor: not-allowed;
+  animation: none;
+}
+
+.pulse-dot[aria-disabled="true"]:hover {
+  transform: none;
+}
+
 /* The user's own "you are here" pin — small, sized like the dots. */
 .pulse-me {
   position: relative;
