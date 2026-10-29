@@ -12,11 +12,12 @@ export interface ChatMessage {
 // How often we tell the peer "I'm typing" while keys are pressed.
 const TYPING_PING_MS = 2_000;
 
+// 12-hour clock, e.g. "7:02 AM".
 function formatTime(at: number): string {
-  return new Date(at).toLocaleTimeString([], {
-    hour: "2-digit",
+  return new Date(at).toLocaleTimeString("en-US", {
+    hour: "numeric",
     minute: "2-digit",
-    hour12: false,
+    hour12: true,
   });
 }
 
