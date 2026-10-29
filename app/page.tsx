@@ -48,7 +48,8 @@ const DECLINE_TIMEOUT = "timeout";
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
-  const [sessionId] = useState(() => crypto.randomUUID());
+  // Replaced by the panic button, so a blocked stranger can't find us again.
+  const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [peers, setPeers] = useState<PeerDot[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -72,6 +73,14 @@ export default function Home() {
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+  // Safe Reveal levels (0 = fully blurred, 1 = clear). Both start blurred and
+  // return to 0 whenever a call ends, never on start: the peer may already
+  // have revealed before our own start lands.
+  const [myReveal, setMyReveal] = useState(0);
+  const [peerReveal, setPeerReveal] = useState(0);
+  // Strangers blocked with the panic button, for the rest of this tab's life.
+  const [blocked, setBlocked] = useState<ReadonlySet<string>>(() => new Set());
+  const blockedRef = useRef(blocked);
 
   const [conn, _setConn] = useState<Conn>({ kind: "idle" });
   const connRef = useRef<Conn>(conn);
@@ -145,8 +154,21 @@ export default function Home() {
     ref.current = null;
   }
 
+  // Everyone on the map except strangers we've blocked.
+  const visiblePeers = peers.filter((p) => !blocked.has(p.id));
+
   function dotFor(peerId: string): PeerDot | null {
-    return peers.find((p) => p.id === peerId) ?? null;
+    return visiblePeers.find((p) => p.id === peerId) ?? null;
+  }
+
+  function resetReveal() {
+    setMyReveal(0);
+    setPeerReveal(0);
+  }
+
+  function changeReveal(level: number) {
+    setMyReveal(level);
+    peerRef.current?.sendReveal(level);
   }
 
   function stopPreview() {
@@ -167,6 +189,7 @@ export default function Home() {
     setVideo("none");
     setVideoDeadline(null);
     setCallStartedAt(null);
+    resetReveal();
     setRequestDeadline(null);
     setMessages([]);
     setTyping(false);
@@ -196,6 +219,7 @@ export default function Home() {
         addMessage(false, text);
       },
       onControl: (ctrl) => handleControl(ctrl),
+      onReveal: (level) => setPeerReveal(level),
       onRemoteStream: (stream) => setRemoteStream(stream),
       onConnectionState: (state) => {
         if (state === "failed") {
@@ -242,6 +266,7 @@ export default function Home() {
     stopPreview();
     setLocalStream(null);
     setVideo("none");
+    resetReveal();
   }
 
   function handleControl(ctrl: PeerControl) {
@@ -448,7 +473,7 @@ export default function Home() {
 
   // A random stranger who's free, other than `exclude`.
   function pickRandomPeer(exclude: string | null): PeerDot | null {
-    const candidates = peers.filter((p) => !p.busy && p.id !== exclude);
+    const candidates = visiblePeers.filter((p) => !p.busy && p.id !== exclude);
     if (candidates.length === 0) return null;
     return candidates[Math.floor(Math.random() * candidates.length)];
   }
@@ -471,6 +496,30 @@ export default function Home() {
     requestRandom(current);
   }
 
+  // Panic button: end everything, block this stranger, and come back as a new
+  // session with a freshly offset dot. The old session id disappears, so the
+  // stranger can't re-request us, and their dot is hidden from our map.
+  function panic() {
+    const c = connRef.current;
+    const peerId = c.kind === "idle" ? undefined : c.peerId;
+    if (peerId) {
+      const next = new Set(blockedRef.current).add(peerId);
+      blockedRef.current = next;
+      setBlocked(next);
+    }
+    // Deletes our presence row and ends the chat for the stranger.
+    leave(sessionId, peerId);
+    teardown("Blocked. You're on the map as someone new.");
+    setOutcome(null);
+    setPeers([]);
+    const fresh = crypto.randomUUID();
+    setSessionId(fresh);
+    const loc = locationRef.current;
+    // If this fails, the first poll for the new id sees joined=false and
+    // re-joins anyway.
+    if (loc) join(fresh, loc.lat, loc.lng).catch(() => {});
+  }
+
   function retryOutcome() {
     if (!outcome) return;
     const p = dotFor(outcome.peerId);
@@ -488,7 +537,9 @@ export default function Home() {
   function processSignal(sig: SignalMsg) {
     switch (sig.type) {
       case "request": {
-        if (connRef.current.kind === "idle") {
+        if (blockedRef.current.has(sig.fromId)) {
+          void sendSignal(sessionId, sig.fromId, "decline");
+        } else if (connRef.current.kind === "idle") {
           const peerId = sig.fromId;
           setOutcome(null);
           setConn({ kind: "incoming", peerId });
@@ -622,7 +673,7 @@ export default function Home() {
   // card) — drives the location and distance shown in the UI.
   const focusPeerId = conn.kind !== "idle" ? conn.peerId : (outcome?.peerId ?? null);
   const focusDot = focusPeerId
-    ? (peers.find((p) => p.id === focusPeerId) ??
+    ? (visiblePeers.find((p) => p.id === focusPeerId) ??
       (outcome?.peerId === focusPeerId ? outcome.peer : null))
     : null;
   const focusLat = focusDot?.lat;
@@ -672,7 +723,7 @@ export default function Home() {
   return (
     <main className="fixed inset-0 overflow-hidden">
       <WorldMap
-        peers={peers}
+        peers={visiblePeers}
         me={myLocation}
         onPeerClick={requestConnection}
         canConnect={conn.kind === "idle"}
@@ -738,6 +789,7 @@ export default function Home() {
           onStartVideo={() => void startVideoRequest()}
           onEnd={endConnection}
           onSkip={skipToNext}
+          onPanic={panic}
           inCall={video === "active"}
           videoSlot={
             video === "incoming" && videoDeadline ? (
@@ -774,6 +826,9 @@ export default function Home() {
           onToggleMic={toggleMic}
           onToggleCam={toggleCam}
           onEnd={endVideo}
+          myReveal={myReveal}
+          peerReveal={peerReveal}
+          onReveal={changeReveal}
         />
       )}
     </main>

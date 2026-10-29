@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   CameraIcon,
   CameraOffIcon,
+  EyeIcon,
+  EyeOffIcon,
   LockIcon,
   MapIcon,
   MicIcon,
@@ -18,6 +20,17 @@ import {
 // "Show map" hides the stage to reveal the map, shrinking the stranger's
 // video into a floating tile. The same <video> elements stay mounted in both
 // modes, so audio never cuts out when toggling.
+//
+// Safe Reveal: both feeds start fully blurred. Each person's slider sets how
+// clearly the *other* side sees them (the level travels over the data
+// channel), and either side can re-hide the stranger at any time.
+
+const MAX_BLUR_PX = 40;
+
+function blurFor(level: number): string {
+  const px = Math.round((1 - level) * MAX_BLUR_PX);
+  return px > 0 ? `blur(${px}px)` : "none";
+}
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -36,6 +49,9 @@ export default function VideoPanel({
   onToggleMic,
   onToggleCam,
   onEnd,
+  myReveal,
+  peerReveal,
+  onReveal,
 }: {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
@@ -46,10 +62,15 @@ export default function VideoPanel({
   onToggleMic: () => void;
   onToggleCam: () => void;
   onEnd: () => void;
+  myReveal: number; // 0 = fully blurred, 1 = clear; how the stranger sees me
+  peerReveal: number; // how clearly the stranger lets me see them
+  onReveal: (level: number) => void;
 }) {
   const localRef = useRef<HTMLVideoElement>(null);
   const remoteRef = useRef<HTMLVideoElement>(null);
   const [mapMode, setMapMode] = useState(false);
+  // Receiver-side override: keep the stranger blurred whatever they reveal.
+  const [hideRemote, setHideRemote] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -70,6 +91,9 @@ export default function VideoPanel({
   }, [remoteStream]);
 
   const elapsed = formatElapsed(Math.max(0, now - startedAt));
+  const remoteFilter = hideRemote ? blurFor(0) : blurFor(peerReveal);
+  const peerPct = Math.round(peerReveal * 100);
+  const myPct = Math.round(myReveal * 100);
 
   return (
     <section
@@ -90,8 +114,40 @@ export default function VideoPanel({
           ref={remoteRef}
           autoPlay
           playsInline
-          className="h-full w-full bg-[#07080c] object-cover"
+          style={{ filter: remoteFilter }}
+          className="reveal-blur h-full w-full bg-[#07080c] object-cover"
         />
+        {remoteStream && !mapMode && (hideRemote || peerReveal < 1) && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+            <div
+              role="status"
+              className="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-ink/80 px-3.5 py-2 text-xs text-zinc-200 backdrop-blur"
+            >
+              {hideRemote ? (
+                <>
+                  <EyeOffIcon size={14} />
+                  You hid their video
+                  <button
+                    onClick={() => setHideRemote(false)}
+                    className="cursor-pointer rounded-full bg-[#1a1d27] px-2.5 py-0.5 font-semibold text-accent hover:bg-[#232735]"
+                  >
+                    Show
+                  </button>
+                </>
+              ) : peerPct === 0 ? (
+                <>
+                  <EyeOffIcon size={14} />
+                  Stranger hasn&rsquo;t revealed yet
+                </>
+              ) : (
+                <>
+                  <EyeIcon size={14} />
+                  Stranger is revealing… {peerPct}%
+                </>
+              )}
+            </div>
+          </div>
+        )}
         {!remoteStream && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#07080c]">
             <div
@@ -130,7 +186,9 @@ export default function VideoPanel({
           autoPlay
           playsInline
           muted
-          className={`h-full w-full -scale-x-100 object-cover ${camOn ? "" : "invisible"}`}
+          // Blurred exactly as the stranger sees you.
+          style={{ filter: blurFor(myReveal) }}
+          className={`reveal-blur h-full w-full -scale-x-100 object-cover ${camOn ? "" : "invisible"}`}
         />
         {!camOn && (
           <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
@@ -138,7 +196,7 @@ export default function VideoPanel({
           </div>
         )}
         <span className="absolute bottom-1.5 left-1.5 rounded-md bg-ink/80 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-200">
-          You
+          You{myPct < 100 && ` · ${myPct}%`}
         </span>
         {!micOn && (
           <span
@@ -150,8 +208,25 @@ export default function VideoPanel({
         )}
       </div>
 
-      {/* Controls. */}
-      <div className="pointer-events-auto absolute inset-x-0 bottom-3 flex justify-center px-3 sm:bottom-5">
+      {/* Reveal slider + controls. */}
+      <div className="pointer-events-auto absolute inset-x-0 bottom-3 flex flex-col items-center gap-2 px-3 sm:bottom-5">
+        <label className="flex w-full max-w-xs items-center gap-3 rounded-2xl border border-line bg-ink/85 px-3.5 py-2 text-xs shadow-2xl backdrop-blur-xl">
+          <EyeIcon size={14} />
+          <span className="shrink-0 font-semibold text-zinc-200">Reveal me</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={myPct}
+            onChange={(e) => onReveal(Number(e.target.value) / 100)}
+            aria-valuetext={myPct === 0 ? "Fully blurred" : `${myPct}% revealed`}
+            className="min-w-0 flex-1 cursor-pointer accent-accent"
+          />
+          <span className="w-9 text-right font-mono tabular-nums text-zinc-400">
+            {myPct}%
+          </span>
+        </label>
         <div className="flex items-center gap-1.5 rounded-2xl border border-line bg-ink/85 p-1.5 shadow-2xl backdrop-blur-xl">
           <ControlButton
             onClick={onToggleMic}
@@ -166,6 +241,13 @@ export default function VideoPanel({
             label={camOn ? "Turn camera off" : "Turn camera on"}
           >
             {camOn ? <CameraIcon /> : <CameraOffIcon />}
+          </ControlButton>
+          <ControlButton
+            onClick={() => setHideRemote((h) => !h)}
+            active={!hideRemote}
+            label={hideRemote ? "Show stranger's video" : "Hide stranger's video"}
+          >
+            {hideRemote ? <EyeOffIcon /> : <EyeIcon />}
           </ControlButton>
           <button
             onClick={() => setMapMode((m) => !m)}

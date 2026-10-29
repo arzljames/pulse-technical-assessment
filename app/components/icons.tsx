@@ -103,3 +103,32 @@ export function VideoOffIcon({ size = 16 }: IconProps) {
     </svg>
   );
 }
+
+export function EyeIcon({ size = 16 }: IconProps) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+export function EyeOffIcon({ size = 16 }: IconProps) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <path d="M10.6 5.1A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.4 3.4" />
+      <path d="M6.6 6.6A17.4 17.4 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      <path d="M2 2l20 20" />
+    </svg>
+  );
+}
+
+export function ShieldIcon({ size = 16 }: IconProps) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z" />
+      <path d="M9.5 9.5l5 5M14.5 9.5l-5 5" />
+    </svg>
+  );
+}

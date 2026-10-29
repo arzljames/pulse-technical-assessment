@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ShieldIcon } from "./icons";
 
 export interface ChatMessage {
   id: number;
@@ -33,6 +34,7 @@ export default function ChatPanel({
   onStartVideo,
   onEnd,
   onSkip,
+  onPanic,
   videoSlot,
   inCall = false,
 }: {
@@ -46,6 +48,8 @@ export default function ChatPanel({
   onStartVideo: () => void;
   onEnd: () => void;
   onSkip: () => void;
+  // Safe Reveal panic: end, block this stranger, and move to a fresh dot.
+  onPanic: () => void;
   // Video request card (incoming / outgoing), shown above the composer.
   videoSlot?: ReactNode;
   // A video call is live: on mobile the sheet shrinks so the video gets the
@@ -134,6 +138,14 @@ export default function ChatPanel({
           }`}
         >
           <CameraIcon />
+        </button>
+        <button
+          onClick={onPanic}
+          aria-label="Block and leave"
+          title="Block and leave: ends the chat, hides this stranger, and moves your dot"
+          className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-[#d63a3a]/40 bg-[#d63a3a]/10 text-red-300 transition hover:bg-[#d63a3a]/20 hover:text-red-200"
+        >
+          <ShieldIcon />
         </button>
         <button
           onClick={onEnd}
