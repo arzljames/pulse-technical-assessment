@@ -45,7 +45,7 @@ export default function EntryGate({
       <DotGlobe className="pointer-events-none absolute inset-0 -z-10 h-full w-full" />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-40 bg-gradient-to-t from-ink to-transparent"
+        className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-40 bg-linear-to-t from-ink to-transparent"
       />
 
       <header className="rise mx-auto flex w-full max-w-5xl items-center justify-between px-6 pt-6 sm:pt-8">
