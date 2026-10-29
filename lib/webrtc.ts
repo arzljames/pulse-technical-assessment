@@ -173,12 +173,17 @@ export class PeerSession {
     }
   }
 
-  async startVideo(): Promise<MediaStream> {
+  // Attach camera + mic to the call. Pass `existing` to reuse a stream the
+  // caller already opened (e.g. the pre-accept self-preview) instead of
+  // prompting for the camera again.
+  async startVideo(existing?: MediaStream): Promise<MediaStream> {
     if (!this.localStream) {
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
+      this.localStream =
+        existing ??
+        (await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        }));
       for (const track of this.localStream.getTracks()) {
         this.pc.addTrack(track, this.localStream);
       }
