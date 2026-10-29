@@ -20,18 +20,29 @@ async function lookup(
     latitude: lat.toFixed(4),
     longitude: lng.toFixed(4),
     types: type,
+    // Names in the viewer's language (otherwise Tokyo comes back as 杉並区, 日本).
+    language: navigator.language?.split("-")[0] || "en",
     access_token: TOKEN,
   });
   const res = await fetch(`${ENDPOINT}?${params}`);
   if (!res.ok) return null;
   const data = (await res.json()) as {
-    features?: { properties?: { name?: string } }[];
+    features?: {
+      properties?: {
+        name?: string;
+        context?: { country?: { name?: string } };
+      };
+    }[];
   };
-  return data.features?.[0]?.properties?.name ?? null;
+  const props = data.features?.[0]?.properties;
+  const name = props?.name;
+  if (!name) return null;
+  const country = props?.context?.country?.name;
+  return country && country !== name ? `${name}, ${country}` : name;
 }
 
-// City name for a coordinate, falling back to the region (rural areas, at
-// sea). Resolves to null on any failure so callers can just omit it.
+// "City, Country" for a coordinate, falling back to "Region, Country" (rural
+// areas, at sea). Resolves to null on any failure so callers can omit it.
 export function reverseGeocode(
   lat: number,
   lng: number,
