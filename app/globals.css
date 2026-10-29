@@ -58,9 +58,81 @@ body {
   animation: live-blink 2s ease-in-out infinite;
 }
 
+/* Chat panel: bottom sheet slides up on mobile, side panel slides in on desktop. */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0.6;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.chat-panel {
+  animation: sheet-up 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@media (min-width: 40rem) {
+  .chat-panel {
+    animation-name: panel-in;
+  }
+}
+
+/* New chat bubbles pop in. */
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.msg-in {
+  animation: msg-in 0.22s ease-out both;
+}
+
+/* "Stranger is typing" dots. */
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+.typing-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: #a1a1aa;
+  animation: typing-bounce 1.1s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
-  .live-blink {
+  .live-blink,
+  .chat-panel,
+  .msg-in,
+  .typing-dot {
     animation: none;
   }
 }

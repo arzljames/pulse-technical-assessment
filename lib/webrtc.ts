@@ -3,7 +3,8 @@ export type PeerControl =
   | "video-request"
   | "video-accept"
   | "video-decline"
-  | "video-end";
+  | "video-end"
+  | "typing"; // ephemeral "stranger is typing" hint, never displayed as text
 
 interface PeerCallbacks {
   onSignal: (type: DescType, payload: string) => void;
