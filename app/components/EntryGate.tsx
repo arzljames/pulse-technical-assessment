@@ -90,7 +90,7 @@ export default function EntryGate({
           <button
             onClick={enter}
             disabled={locating}
-            className="group inline-flex items-center gap-3 rounded-full bg-accent py-2 pl-6 pr-2 text-sm font-semibold text-ink shadow-[0_0_40px_-8px_rgba(143,162,255,0.7)] transition hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-80"
+            className="group inline-flex cursor-pointer items-center gap-3 rounded-full bg-accent py-2 pl-6 pr-2 text-sm font-semibold text-ink shadow-[0_0_40px_-8px_rgba(143,162,255,0.7)] transition hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-80"
           >
             {locating ? "Locating you…" : "Enter Pulse"}
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-accent transition group-hover:translate-x-0.5">
