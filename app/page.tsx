@@ -7,6 +7,7 @@ import RequestModal from "./components/RequestModal";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import { IncomingVideoCard, OutgoingVideoCard } from "./components/VideoRequestCard";
 import VideoPanel from "./components/VideoPanel";
+import HiddenBanner from "./components/HiddenBanner";
 import { join, leave, poll, sendSignal } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
@@ -45,6 +46,14 @@ const TYPING_HIDE_MS = 3_500;
 const VIDEO_REQUEST_TIMEOUT_MS = 30_000;
 // Payload on a "decline" that means "nobody answered", not "they said no".
 const DECLINE_TIMEOUT = "timeout";
+// After a panic, the earliest we reappear on the map is a random 30–90 s
+// later, so the blocked stranger can't link the new dot to the old one.
+const PANIC_HIDE_MIN_MS = 30_000;
+const PANIC_HIDE_JITTER_MS = 60_000;
+
+// Off the map after a panic. `rejoinAt` is set once the user asks to come
+// back; it's never earlier than `earliest`.
+type Hidden = { earliest: number; rejoinAt: number | null };
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
@@ -81,6 +90,14 @@ export default function Home() {
   // Strangers blocked with the panic button, for the rest of this tab's life.
   const [blocked, setBlocked] = useState<ReadonlySet<string>>(() => new Set());
   const blockedRef = useRef(blocked);
+
+  const [hidden, _setHidden] = useState<Hidden | null>(null);
+  const hiddenRef = useRef<Hidden | null>(hidden);
+  const setHidden = (h: Hidden | null) => {
+    hiddenRef.current = h;
+    _setHidden(h);
+  };
+  const rejoinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [conn, _setConn] = useState<Conn>({ kind: "idle" });
   const connRef = useRef<Conn>(conn);
@@ -420,7 +437,8 @@ export default function Home() {
   // ── Connection requests ──────────────────────────────────────────────────
 
   function requestConnection(peerId: string) {
-    if (connRef.current.kind !== "idle") return;
+    // While hidden we have no presence row, so nobody could answer back.
+    if (connRef.current.kind !== "idle" || hiddenRef.current) return;
     setOutcome(null);
     setConn({ kind: "requesting", peerId });
     setRequestDeadline(Date.now() + REQUEST_TIMEOUT_MS);
@@ -496,9 +514,10 @@ export default function Home() {
     requestRandom(current);
   }
 
-  // Panic button: end everything, block this stranger, and come back as a new
-  // session with a freshly offset dot. The old session id disappears, so the
-  // stranger can't re-request us, and their dot is hidden from our map.
+  // Panic button: end everything, block this stranger, and go off the map
+  // under a new session id. The old id disappears, so the stranger can't
+  // re-request us, and their dot is hidden from our map. We only reappear
+  // (with a freshly offset dot) when the user chooses, after a random delay.
   function panic() {
     const c = connRef.current;
     const peerId = c.kind === "idle" ? undefined : c.peerId;
@@ -509,15 +528,34 @@ export default function Home() {
     }
     // Deletes our presence row and ends the chat for the stranger.
     leave(sessionId, peerId);
-    teardown("Blocked. You're on the map as someone new.");
+    teardown("Stranger blocked.");
     setOutcome(null);
     setPeers([]);
     const fresh = crypto.randomUUID();
     setSessionId(fresh);
-    const loc = locationRef.current;
-    // If this fails, the first poll for the new id sees joined=false and
-    // re-joins anyway.
-    if (loc) join(fresh, loc.lat, loc.lng).catch(() => {});
+    clearTimer(rejoinTimer);
+    setHidden({
+      earliest: Date.now() + PANIC_HIDE_MIN_MS + Math.random() * PANIC_HIDE_JITTER_MS,
+      rejoinAt: null,
+    });
+  }
+
+  function goVisible() {
+    const h = hiddenRef.current;
+    if (!h || h.rejoinAt !== null) return;
+    const at = Math.max(Date.now(), h.earliest);
+    setHidden({ ...h, rejoinAt: at });
+    clearTimer(rejoinTimer);
+    // Clearing `hidden` is enough: the next poll sees joined=false for the
+    // new id and joins with a fresh privacy offset.
+    rejoinTimer.current = setTimeout(() => setHidden(null), at - Date.now());
+  }
+
+  function stayHidden() {
+    const h = hiddenRef.current;
+    if (!h) return;
+    clearTimer(rejoinTimer);
+    setHidden({ ...h, rejoinAt: null });
   }
 
   function retryOutcome() {
@@ -635,7 +673,8 @@ export default function Home() {
         if (!active) return;
         // Our presence row is gone (throttled background tab, bfcache
         // restore, failed initial join) — put ourselves back on the map.
-        if (!data.joined && locationRef.current) {
+        // (Not while hidden after a panic: staying off the map is the point.)
+        if (!data.joined && locationRef.current && !hiddenRef.current) {
           const { lat, lng } = locationRef.current;
           await join(sessionId, lat, lng);
         }
@@ -726,8 +765,16 @@ export default function Home() {
         peers={visiblePeers}
         me={myLocation}
         onPeerClick={requestConnection}
-        canConnect={conn.kind === "idle"}
+        canConnect={conn.kind === "idle" && !hidden}
       />
+
+      {hidden && conn.kind === "idle" && (
+        <HiddenBanner
+          rejoinAt={hidden.rejoinAt}
+          onGoVisible={goVisible}
+          onStayHidden={stayHidden}
+        />
+      )}
 
       {notice && (
         <div
