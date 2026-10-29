@@ -29,4 +29,8 @@ export interface SignalMsg {
 export interface PollResponse {
   peers: PeerDot[];
   signals: SignalMsg[];
+  // false when the caller has no presence row (reaped while the tab was
+  // throttled, restored from bfcache, or the initial join failed) — the
+  // client should join again.
+  joined: boolean;
 }
