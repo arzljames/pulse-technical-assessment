@@ -8,6 +8,7 @@ import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import { IncomingVideoCard, OutgoingVideoCard } from "./components/VideoRequestCard";
 import VideoPanel from "./components/VideoPanel";
 import HiddenBanner from "./components/HiddenBanner";
+import StatsPanel from "./components/StatsPanel";
 import { join, leave, poll, sendSignal } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
@@ -767,6 +768,16 @@ export default function Home() {
         onPeerClick={requestConnection}
         canConnect={conn.kind === "idle" && !hidden}
       />
+
+      {/* Hidden during a video call, whose stage covers the map. */}
+      {video !== "active" && (
+        <StatsPanel
+          peers={visiblePeers}
+          me={myLocation}
+          canConnect={conn.kind === "idle" && !hidden}
+          onConnect={requestConnection}
+        />
+      )}
 
       {hidden && conn.kind === "idle" && (
         <HiddenBanner
