@@ -9,6 +9,7 @@ import VideoPanel from "./components/VideoPanel";
 import { join, leave, poll, sendSignal } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
+import { reverseGeocode } from "@/lib/geocode";
 import { type PeerDot, type SignalMsg } from "@/lib/types";
 
 type Conn =
@@ -24,6 +25,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 // Max time from accept until the data channel opens. Covers a lost or
 // ignored accept, a peer that vanished mid-handshake, and stalled ICE.
 const CONNECT_TIMEOUT_MS = 20_000;
+// Hide the typing indicator if no new "typing" ping arrives within this.
+const TYPING_HIDE_MS = 3_500;
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
@@ -36,6 +39,9 @@ export default function Home() {
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(
     null,
   );
+  const [peerPlace, setPeerPlace] = useState<string | null>(null);
+  const [peerTyping, setPeerTyping] = useState(false);
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [conn, _setConn] = useState<Conn>({ kind: "idle" });
   const connRef = useRef<Conn>(conn);
@@ -65,7 +71,18 @@ export default function Home() {
   }
 
   function addMessage(mine: boolean, text: string) {
-    setMessages((prev) => [...prev, { id: msgId.current++, mine, text }]);
+    setMessages((prev) => [
+      ...prev,
+      { id: msgId.current++, mine, text, at: Date.now() },
+    ]);
+  }
+
+  function setTyping(on: boolean) {
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    setPeerTyping(on);
+    if (on) {
+      typingTimer.current = setTimeout(() => setPeerTyping(false), TYPING_HIDE_MS);
+    }
   }
 
   function teardown(message?: string) {
@@ -77,6 +94,8 @@ export default function Home() {
     setRemoteStream(null);
     setVideo("none");
     setMessages([]);
+    setTyping(false);
+    setPeerPlace(null);
     setConn({ kind: "idle" });
     if (message) showNotice(message);
   }
@@ -98,7 +117,10 @@ export default function Home() {
       onSignal: (type: DescType, payload: string) => {
         void sendSignal(sessionId, peerId, type, payload);
       },
-      onChat: (text) => addMessage(false, text),
+      onChat: (text) => {
+        setTyping(false);
+        addMessage(false, text);
+      },
       onControl: (ctrl) => handleControl(ctrl),
       onRemoteStream: (stream) => setRemoteStream(stream),
       onConnectionState: (state) => {
@@ -140,6 +162,9 @@ export default function Home() {
   function handleControl(ctrl: PeerControl) {
     const ps = peerRef.current;
     switch (ctrl) {
+      case "typing":
+        setTyping(true);
+        break;
       case "video-request":
         if (videoRef.current === "none") setVideo("incoming");
         break;
@@ -215,6 +240,20 @@ export default function Home() {
       void sendSignal(sessionId, c.peerId, "end");
     }
     teardown();
+  }
+
+  // End the current chat and immediately request a random available stranger.
+  function skipToNext() {
+    const c = connRef.current;
+    const current = c.kind === "idle" ? null : c.peerId;
+    endConnection();
+    const candidates = peers.filter((p) => !p.busy && p.id !== current);
+    if (candidates.length === 0) {
+      showNotice("No one else is free right now.");
+      return;
+    }
+    const next = candidates[Math.floor(Math.random() * candidates.length)];
+    requestConnection(next.id);
   }
 
   function startVideoRequest() {
@@ -362,6 +401,25 @@ export default function Home() {
     };
   }, [sessionId, phase]);
 
+  // City name for the chat header, from the peer's (already offset) dot.
+  const activePeerId =
+    conn.kind === "connecting" || conn.kind === "connected" ? conn.peerId : null;
+  const activePeer = activePeerId
+    ? peers.find((p) => p.id === activePeerId)
+    : undefined;
+  const peerLat = activePeer?.lat;
+  const peerLng = activePeer?.lng;
+  useEffect(() => {
+    if (peerLat === undefined || peerLng === undefined) return;
+    let cancelled = false;
+    void reverseGeocode(peerLat, peerLng).then((name) => {
+      if (!cancelled) setPeerPlace(name);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [peerLat, peerLng]);
+
   async function handleReady(lat: number, lng: number) {
     setMyLocation({ lat, lng });
     locationRef.current = { lat, lng };
@@ -421,12 +479,16 @@ export default function Home() {
           messages={messages}
           connected={conn.kind === "connected"}
           videoBusy={video !== "none"}
+          peerPlace={peerPlace}
+          peerTyping={peerTyping}
           onSend={(text) => {
             peerRef.current?.sendChat(text);
             addMessage(true, text);
           }}
+          onTyping={() => peerRef.current?.sendControl("typing")}
           onStartVideo={startVideoRequest}
           onEnd={endConnection}
+          onSkip={skipToNext}
         />
       )}
 
