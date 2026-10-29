@@ -14,6 +14,8 @@ interface PeerCallbacks {
   onChannelOpen: () => void;
   // The remote side went away (tab closed, crashed, or hung up).
   onChannelClose: () => void;
+  // SDP negotiation failed (couldn't apply or create an offer/answer).
+  onError: (err: unknown) => void;
 }
 
 const ICE_CONFIG: RTCConfiguration = {
@@ -49,6 +51,8 @@ export class PeerSession {
         if (this.pc.localDescription) {
           this.cb.onSignal("offer", JSON.stringify(this.pc.localDescription));
         }
+      } catch (err) {
+        if (!this.closed) this.cb.onError(err);
       } finally {
         this.makingOffer = false;
       }
@@ -91,36 +95,47 @@ export class PeerSession {
     };
   }
 
+  // Never rejects: malformed payloads and individual ICE failures are logged
+  // and dropped (recoverable); SDP failures are reported via onError.
   async handleSignal(type: DescType, payload: string) {
     if (this.closed) return;
-    const data = JSON.parse(payload);
 
-    if (type === "ice") {
-      if (!this.pc.remoteDescription) {
-        this.pendingCandidates.push(data);
-        return;
-      }
-      try {
-        await this.pc.addIceCandidate(data);
-      } catch {}
+    let data: unknown;
+    try {
+      data = JSON.parse(payload);
+    } catch {
+      console.warn(`[webrtc] dropping malformed ${type} payload`);
       return;
     }
 
-    const desc = data as RTCSessionDescriptionInit;
-    const offerCollision =
-      desc.type === "offer" &&
-      (this.makingOffer || this.pc.signalingState !== "stable");
-    this.ignoreOffer = !this.polite && offerCollision;
-    if (this.ignoreOffer) return;
-
-    await this.pc.setRemoteDescription(desc);
-    // Candidates can only be applied once a remote description exists.
-    await this.flushPendingCandidates();
-    if (desc.type === "offer") {
-      await this.pc.setLocalDescription();
-      if (this.pc.localDescription) {
-        this.cb.onSignal("answer", JSON.stringify(this.pc.localDescription));
+    if (type === "ice") {
+      if (!this.pc.remoteDescription) {
+        this.pendingCandidates.push(data as RTCIceCandidateInit);
+        return;
       }
+      await this.addCandidate(data as RTCIceCandidateInit);
+      return;
+    }
+
+    try {
+      const desc = data as RTCSessionDescriptionInit;
+      const offerCollision =
+        desc.type === "offer" &&
+        (this.makingOffer || this.pc.signalingState !== "stable");
+      this.ignoreOffer = !this.polite && offerCollision;
+      if (this.ignoreOffer) return;
+
+      await this.pc.setRemoteDescription(desc);
+      // Candidates can only be applied once a remote description exists.
+      await this.flushPendingCandidates();
+      if (desc.type === "offer") {
+        await this.pc.setLocalDescription();
+        if (this.pc.localDescription) {
+          this.cb.onSignal("answer", JSON.stringify(this.pc.localDescription));
+        }
+      }
+    } catch (err) {
+      if (!this.closed) this.cb.onError(err);
     }
   }
 
@@ -128,10 +143,18 @@ export class PeerSession {
     if (this.pendingCandidates.length === 0) return;
     const queued = this.pendingCandidates;
     this.pendingCandidates = [];
-    for (const candidate of queued) {
-      try {
-        await this.pc.addIceCandidate(candidate);
-      } catch {}
+    for (const candidate of queued) await this.addCandidate(candidate);
+  }
+
+  // One bad candidate isn't fatal — ICE can still succeed with the others.
+  // Errors are expected (and silent) for candidates of an offer we ignored.
+  private async addCandidate(candidate: RTCIceCandidateInit) {
+    try {
+      await this.pc.addIceCandidate(candidate);
+    } catch (err) {
+      if (!this.ignoreOffer && !this.closed) {
+        console.warn("[webrtc] failed to add ICE candidate", err);
+      }
     }
   }
 

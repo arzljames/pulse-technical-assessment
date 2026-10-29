@@ -119,6 +119,20 @@ export default function Home() {
         void sendSignal(sessionId, peerId, "end");
         teardown("Stranger disconnected.");
       },
+      onError: (err) => {
+        console.error("[webrtc] negotiation failed", err);
+        if (connRef.current.kind === "connecting") {
+          // The initial handshake can't complete — fail fast instead of
+          // waiting out the connect timeout.
+          void sendSignal(sessionId, peerId, "end");
+          teardown("Couldn't connect.");
+        } else if (videoRef.current !== "none") {
+          // A renegotiation for video failed. The chat channel is already up
+          // and unaffected, so drop back to text chat rather than ending it.
+          endVideo();
+          showNotice("Video couldn't start.");
+        }
+      },
     });
     peerRef.current = ps;
   }
