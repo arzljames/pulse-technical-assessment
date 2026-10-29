@@ -143,7 +143,15 @@ body {
   animation: typing-bounce 1.1s ease-in-out infinite;
 }
 
+/* Safe Reveal: blur eases as the reveal level changes */
+.reveal-blur {
+  transition: filter 300ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .reveal-blur {
+    transition: none;
+  }
   .rise,
   .live-blink,
   .chat-panel,

@@ -10,6 +10,8 @@ interface PeerCallbacks {
   onSignal: (type: DescType, payload: string) => void;
   onChat: (text: string) => void;
   onControl: (ctrl: PeerControl) => void;
+  // Safe Reveal: how much of their video the peer agrees to show, 0–1.
+  onReveal: (level: number) => void;
   onRemoteStream: (stream: MediaStream | null) => void;
   onConnectionState: (state: RTCPeerConnectionState) => void;
   onChannelOpen: () => void;
@@ -17,6 +19,13 @@ interface PeerCallbacks {
   onChannelClose: () => void;
   // SDP negotiation failed (couldn't apply or create an offer/answer).
   onError: (err: unknown) => void;
+}
+
+// Reveal levels come from the other browser, so never trust them: drop
+// NaN/Infinity and clamp the rest into 0–1.
+function clampLevel(level: number): number | null {
+  if (!Number.isFinite(level)) return null;
+  return Math.min(1, Math.max(0, level));
 }
 
 const ICE_CONFIG: RTCConfiguration = {
@@ -91,6 +100,9 @@ export class PeerSession {
           this.cb.onChat(msg.text);
         } else if (msg.t === "ctrl" && typeof msg.ctrl === "string") {
           this.cb.onControl(msg.ctrl as PeerControl);
+        } else if (msg.t === "reveal" && typeof msg.level === "number") {
+          const level = clampLevel(msg.level);
+          if (level !== null) this.cb.onReveal(level);
         }
       } catch {}
     };
@@ -165,6 +177,11 @@ export class PeerSession {
 
   sendControl(ctrl: PeerControl) {
     this.safeSend({ t: "ctrl", ctrl });
+  }
+
+  sendReveal(level: number) {
+    const clamped = clampLevel(level);
+    if (clamped !== null) this.safeSend({ t: "reveal", level: clamped });
   }
 
   private safeSend(obj: unknown) {
