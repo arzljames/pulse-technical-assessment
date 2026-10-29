@@ -83,11 +83,20 @@ export default function Home() {
       onRemoteStream: (stream) => setRemoteStream(stream),
       onConnectionState: (state) => {
         if (state === "failed") {
+          // Tell the server so both peers' busy flags are cleared.
+          void sendSignal(sessionId, peerId, "end");
           teardown("Connection failed (network).");
         }
       },
       onChannelOpen: () => {
         setConn({ kind: "connected", peerId });
+      },
+      onChannelClose: () => {
+        // The peer vanished without us getting an "end" signal (tab closed,
+        // crash, network drop). Send "end" ourselves so the server frees our
+        // busy flag even if their leave beacon never arrived.
+        void sendSignal(sessionId, peerId, "end");
+        teardown("Stranger disconnected.");
       },
     });
     peerRef.current = ps;
@@ -251,13 +260,9 @@ export default function Home() {
       }
       case "end": {
         const c = connRef.current;
-        if (
-          (c.kind === "incoming" ||
-            c.kind === "connecting" ||
-            c.kind === "connected") &&
-          c.peerId === sig.fromId
-        ) {
+        if (c.kind !== "idle" && c.peerId === sig.fromId) {
           if (c.kind === "incoming") setConn({ kind: "idle" });
+          else if (c.kind === "requesting") teardown("Stranger left.");
           else teardown("Stranger disconnected.");
         }
         break;
@@ -294,7 +299,10 @@ export default function Home() {
 
   useEffect(() => {
     if (!sessionId || phase !== "live") return;
-    const onLeave = () => leave(sessionId);
+    const onLeave = () => {
+      const c = connRef.current;
+      leave(sessionId, c.kind === "idle" ? undefined : c.peerId);
+    };
     window.addEventListener("pagehide", onLeave);
     window.addEventListener("beforeunload", onLeave);
     return () => {
