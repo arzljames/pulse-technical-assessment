@@ -35,3 +35,13 @@ model Signal {
 
   @@index([toId])
 }
+
+model RateLimit {
+  // Fixed-window request counter (S3). key = "<bucket>:<session or ip>".
+  // Rows are tiny and swept periodically by /api/poll.
+  key         String   @id
+  windowStart DateTime
+  count       Int
+
+  @@index([windowStart])
+}

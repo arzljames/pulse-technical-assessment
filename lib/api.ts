@@ -46,17 +46,20 @@ export async function poll(token: string): Promise<PollResponse> {
   return res.json();
 }
 
+// Resolves to the HTTP status (e.g. 429 when rate limited, 409 when the
+// server rejected the signal for the current connection state).
 export async function sendSignal(
   token: string,
   toId: string,
   type: SignalType,
   payload?: string,
-): Promise<void> {
-  await fetch("/api/signal", {
+): Promise<number> {
+  const res = await fetch("/api/signal", {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ toId, type, payload }),
   });
+  return res.status;
 }
 
 // Fire-and-forget leave that survives the tab closing. The server ends any

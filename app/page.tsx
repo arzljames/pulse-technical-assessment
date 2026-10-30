@@ -456,7 +456,14 @@ export default function Home() {
     setOutcome(null);
     setConn({ kind: "requesting", peerId });
     setRequestDeadline(Date.now() + REQUEST_TIMEOUT_MS);
-    void sendSignal(token, peerId, "request");
+    void sendSignal(token, peerId, "request").then((status) => {
+      // Too many requests: the server never delivered it, so don't sit on
+      // "Waiting…" for 30 s.
+      const c = connRef.current;
+      if (status === 429 && c.kind === "requesting" && c.peerId === peerId) {
+        teardown("Too many requests. Wait a minute and try again.");
+      }
+    }, () => {});
     const snapshot = dotFor(peerId);
     clearTimer(requestTimer);
     requestTimer.current = setTimeout(() => {
@@ -500,7 +507,10 @@ export default function Home() {
     const c = connRef.current;
     const ended =
       c.kind === "connecting" || c.kind === "connected"
-        ? sendSignal(token, c.peerId, "end").catch(() => {})
+        ? sendSignal(token, c.peerId, "end").then(
+            () => {},
+            () => {},
+          )
         : Promise.resolve();
     teardown();
     return ended;
