@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { SignalType } from "@/lib/types";
 import { isSessionId, sessionFrom, unauthorized } from "@/lib/session";
+import { clientIp, MINUTE, rateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,8 @@ const VALID_TYPES: SignalType[] = [
   "end",
 ];
 
-const MAX_PAYLOAD = 64 * 1024; // SDP/ICE are small; cap to be safe.
+// A video SDP is a few KB and an ICE candidate a few hundred bytes.
+const MAX_PAYLOAD = 16 * 1024;
 
 // POST /api/signal — body { toId, type, payload? }, Bearer session token.
 // Drops one message into the recipient's mailbox, always from the token's
@@ -34,6 +36,13 @@ const MAX_PAYLOAD = 64 * 1024; // SDP/ICE are small; cap to be safe.
 export async function POST(request: NextRequest) {
   const fromId = sessionFrom(request);
   if (!fromId) return unauthorized();
+  // Overall budget: a call setup is an offer/answer plus a few dozen ICE
+  // candidates, and a video upgrade repeats that.
+  const limited = await rateLimit(
+    { key: `signal:${fromId}`, max: 240, windowMs: MINUTE },
+    { key: `signal-ip:${clientIp(request)}`, max: 1200, windowMs: MINUTE },
+  );
+  if (limited) return limited;
 
   let body: unknown;
   try {
@@ -63,6 +72,14 @@ export async function POST(request: NextRequest) {
 
   switch (signalType) {
     case "request": {
+      // Request spam: a few per minute overall, and a few per 5 minutes to
+      // the same person, so nobody can be pestered with request after
+      // request.
+      const spam = await rateLimit(
+        { key: `request:${fromId}`, max: 10, windowMs: MINUTE },
+        { key: `request-pair:${fromId}:${toId}`, max: 3, windowMs: 5 * MINUTE },
+      );
+      if (spam) return spam;
       // One active connection at a time: a busy or vanished target gets an
       // automatic decline instead of the request.
       const target = await prisma.presence.findUnique({

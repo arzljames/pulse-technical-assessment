@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { applyPrivacyOffset, isValidLatLng } from "@/lib/geo";
 import { sessionFrom, unauthorized } from "@/lib/session";
+import { clientIp, MINUTE, rateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,13 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   const id = sessionFrom(request);
   if (!id) return unauthorized();
+  // Every join applies a fresh random offset, so unlimited re-joins would
+  // also feed the location-averaging attack (S4).
+  const limited = await rateLimit(
+    { key: `join:${id}`, max: 10, windowMs: MINUTE },
+    { key: `join-ip:${clientIp(request)}`, max: 60, windowMs: MINUTE },
+  );
+  if (limited) return limited;
 
   let body: unknown;
   try {
