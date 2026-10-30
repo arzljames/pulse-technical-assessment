@@ -9,7 +9,15 @@ import { IncomingVideoCard, OutgoingVideoCard } from "./components/VideoRequestC
 import VideoPanel from "./components/VideoPanel";
 import HiddenBanner from "./components/HiddenBanner";
 import StatsPanel from "./components/StatsPanel";
-import { join, leave, poll, sendSignal } from "@/lib/api";
+import {
+  createSession,
+  join,
+  leave,
+  poll,
+  sendSignal,
+  UnauthorizedError,
+  type Session,
+} from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
 import { distanceKm, formatDistance } from "@/lib/geo";
@@ -47,6 +55,8 @@ const TYPING_HIDE_MS = 3_500;
 const VIDEO_REQUEST_TIMEOUT_MS = 30_000;
 // Payload on a "decline" that means "nobody answered", not "they said no".
 const DECLINE_TIMEOUT = "timeout";
+// Retry interval while the server can't start a session for us.
+const SESSION_RETRY_MS = 3_000;
 // After a panic, the earliest we reappear on the map is a random 30–90 s
 // later, so the blocked stranger can't link the new dot to the old one.
 const PANIC_HIDE_MIN_MS = 30_000;
@@ -58,8 +68,11 @@ type Hidden = { earliest: number; rejoinAt: number | null };
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
-  // Replaced by the panic button, so a blocked stranger can't find us again.
-  const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
+  // Server-issued session (S1): public id + secret token, memory only. Null
+  // until the server hands one out, and again right after a panic (which
+  // asks for a fresh one so a blocked stranger can't find us again).
+  const [session, setSession] = useState<Session | null>(null);
+  const token = session?.token ?? "";
   const [peers, setPeers] = useState<PeerDot[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -221,7 +234,7 @@ export default function Home() {
     connectTimer.current = setTimeout(() => {
       const c = connRef.current;
       if (c.kind === "connecting" && c.peerId === peerId) {
-        void sendSignal(sessionId, peerId, "end");
+        void sendSignal(token, peerId, "end");
         teardown("Couldn't connect.");
       }
     }, CONNECT_TIMEOUT_MS);
@@ -230,7 +243,7 @@ export default function Home() {
   function startPeer(peerId: string, initiator: boolean) {
     const ps = new PeerSession(initiator, {
       onSignal: (type: DescType, payload: string) => {
-        void sendSignal(sessionId, peerId, type, payload);
+        void sendSignal(token, peerId, type, payload);
       },
       onChat: (text) => {
         setTyping(false);
@@ -242,7 +255,7 @@ export default function Home() {
       onConnectionState: (state) => {
         if (state === "failed") {
           // Tell the server so both peers' busy flags are cleared.
-          void sendSignal(sessionId, peerId, "end");
+          void sendSignal(token, peerId, "end");
           teardown("Connection failed (network).");
         }
       },
@@ -254,7 +267,7 @@ export default function Home() {
         // The peer vanished without us getting an "end" signal (tab closed,
         // crash, network drop). Send "end" ourselves so the server frees our
         // busy flag even if their leave beacon never arrived.
-        void sendSignal(sessionId, peerId, "end");
+        void sendSignal(token, peerId, "end");
         teardown("Stranger disconnected.");
       },
       onError: (err) => {
@@ -262,7 +275,7 @@ export default function Home() {
         if (connRef.current.kind === "connecting") {
           // The initial handshake can't complete — fail fast instead of
           // waiting out the connect timeout.
-          void sendSignal(sessionId, peerId, "end");
+          void sendSignal(token, peerId, "end");
           teardown("Couldn't connect.");
         } else if (videoRef.current !== "none") {
           // A renegotiation for video failed. The chat channel is already up
@@ -443,13 +456,13 @@ export default function Home() {
     setOutcome(null);
     setConn({ kind: "requesting", peerId });
     setRequestDeadline(Date.now() + REQUEST_TIMEOUT_MS);
-    void sendSignal(sessionId, peerId, "request");
+    void sendSignal(token, peerId, "request");
     const snapshot = dotFor(peerId);
     clearTimer(requestTimer);
     requestTimer.current = setTimeout(() => {
       const c = connRef.current;
       if (c.kind === "requesting" && c.peerId === peerId) {
-        void sendSignal(sessionId, peerId, "end");
+        void sendSignal(token, peerId, "end");
         teardown();
         setOutcome({ kind: "timeout", peerId, peer: snapshot });
       }
@@ -458,7 +471,7 @@ export default function Home() {
 
   function cancelRequest() {
     if (connRef.current.kind === "requesting") {
-      void sendSignal(sessionId, connRef.current.peerId, "end");
+      void sendSignal(token, connRef.current.peerId, "end");
     }
     teardown();
   }
@@ -469,7 +482,7 @@ export default function Home() {
     clearTimer(incomingTimer);
     setRequestDeadline(null);
     startPeer(peerId, false);
-    void sendSignal(sessionId, peerId, "accept");
+    void sendSignal(token, peerId, "accept");
     setConn({ kind: "connecting", peerId });
     startConnectTimeout(peerId);
   }
@@ -478,14 +491,14 @@ export default function Home() {
     if (connRef.current.kind !== "incoming") return;
     clearTimer(incomingTimer);
     setRequestDeadline(null);
-    void sendSignal(sessionId, connRef.current.peerId, "decline");
+    void sendSignal(token, connRef.current.peerId, "decline");
     setConn({ kind: "idle" });
   }
 
   function endConnection() {
     const c = connRef.current;
     if (c.kind === "connecting" || c.kind === "connected") {
-      void sendSignal(sessionId, c.peerId, "end");
+      void sendSignal(token, c.peerId, "end");
     }
     teardown();
   }
@@ -528,12 +541,12 @@ export default function Home() {
       setBlocked(next);
     }
     // Deletes our presence row and ends the chat for the stranger.
-    leave(sessionId, peerId);
+    leave(token, peerId);
     teardown("Stranger blocked.");
     setOutcome(null);
     setPeers([]);
-    const fresh = crypto.randomUUID();
-    setSessionId(fresh);
+    // A new identity is minted by the session effect below.
+    setSession(null);
     clearTimer(rejoinTimer);
     setHidden({
       earliest: Date.now() + PANIC_HIDE_MIN_MS + Math.random() * PANIC_HIDE_JITTER_MS,
@@ -577,7 +590,7 @@ export default function Home() {
     switch (sig.type) {
       case "request": {
         if (blockedRef.current.has(sig.fromId)) {
-          void sendSignal(sessionId, sig.fromId, "decline");
+          void sendSignal(token, sig.fromId, "decline");
         } else if (connRef.current.kind === "idle") {
           const peerId = sig.fromId;
           setOutcome(null);
@@ -588,14 +601,14 @@ export default function Home() {
           incomingTimer.current = setTimeout(() => {
             const c = connRef.current;
             if (c.kind === "incoming" && c.peerId === peerId) {
-              void sendSignal(sessionId, peerId, "decline", DECLINE_TIMEOUT);
+              void sendSignal(token, peerId, "decline", DECLINE_TIMEOUT);
               setRequestDeadline(null);
               setConn({ kind: "idle" });
               setOutcome({ kind: "expired", peerId, peer: snapshot });
             }
           }, INCOMING_TIMEOUT_MS);
         } else {
-          void sendSignal(sessionId, sig.fromId, "decline");
+          void sendSignal(token, sig.fromId, "decline");
         }
         break;
       }
@@ -611,7 +624,7 @@ export default function Home() {
           // An accept we're no longer waiting for (we cancelled or timed out
           // as they accepted). Tell them, so they don't sit on "Connecting…"
           // and the server frees their busy flag.
-          void sendSignal(sessionId, sig.fromId, "end");
+          void sendSignal(token, sig.fromId, "end");
         }
         break;
       }
@@ -663,25 +676,53 @@ export default function Home() {
     processSignalRef.current = processSignal;
   });
 
+  // Get a session from the server once we're live (and again after a panic
+  // or a rejected token), retrying until it works.
   useEffect(() => {
-    if (phase !== "live" || !sessionId) return;
+    if (phase !== "live" || session) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = async () => {
+      try {
+        const s = await createSession();
+        if (active) setSession(s);
+      } catch {
+        if (active) timer = setTimeout(attempt, SESSION_RETRY_MS);
+      }
+    };
+    void attempt();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [phase, session]);
+
+  useEffect(() => {
+    if (phase !== "live" || !token) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const tick = async () => {
       try {
-        const data = await poll(sessionId);
+        const data = await poll(token);
         if (!active) return;
-        // Our presence row is gone (throttled background tab, bfcache
-        // restore, failed initial join) — put ourselves back on the map.
+        // No presence row yet (new session) or it's gone (throttled
+        // background tab, bfcache restore) — put ourselves on the map.
         // (Not while hidden after a panic: staying off the map is the point.)
         if (!data.joined && locationRef.current && !hiddenRef.current) {
           const { lat, lng } = locationRef.current;
-          await join(sessionId, lat, lng);
+          await join(token, lat, lng);
         }
         setPeers(data.peers);
         for (const s of data.signals) processSignalRef.current(s);
-      } catch {}
+      } catch (err) {
+        // Token rejected (e.g. the server's secret changed): start over with
+        // a new session. Anything else is transient; just poll again.
+        if (err instanceof UnauthorizedError && active) {
+          setSession(null);
+          return;
+        }
+      }
       if (active) timer = setTimeout(tick, POLL_INTERVAL_MS);
     };
     tick();
@@ -690,10 +731,10 @@ export default function Home() {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [phase, sessionId]);
+  }, [phase, token]);
 
   useEffect(() => {
-    if (!sessionId || phase !== "live") return;
+    if (!token || phase !== "live") return;
     // pagehide covers tab close, reload and navigation on every browser.
     // (beforeunload is redundant and can make the page bfcache-ineligible.)
     const onLeave = (e: PageTransitionEvent) => {
@@ -701,13 +742,13 @@ export default function Home() {
       // If it's restored after STALE_MS, the next poll re-joins.
       if (e.persisted) return;
       const c = connRef.current;
-      leave(sessionId, c.kind === "idle" ? undefined : c.peerId);
+      leave(token, c.kind === "idle" ? undefined : c.peerId);
     };
     window.addEventListener("pagehide", onLeave);
     return () => {
       window.removeEventListener("pagehide", onLeave);
     };
-  }, [sessionId, phase]);
+  }, [token, phase]);
 
   // The stranger currently in focus (request, chat, or a finished request's
   // card) — drives the location and distance shown in the UI.
@@ -735,14 +776,11 @@ export default function Home() {
     };
   }, [focusLat, focusLng]);
 
-  async function handleReady(lat: number, lng: number) {
+  // Location granted: go live. The session effect then gets a token, and the
+  // first poll (joined=false) puts us on the map.
+  function handleReady(lat: number, lng: number) {
     setMyLocation({ lat, lng });
     locationRef.current = { lat, lng };
-    try {
-      await join(sessionId, lat, lng);
-    } catch {
-      // Not fatal: the first poll reports joined=false and retries the join.
-    }
     setPhase("live");
   }
 
