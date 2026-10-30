@@ -1,90 +1,119 @@
-# Pulse — All Changes
+# Pulse — Notes
 
-A simple list of every change, by phase, with its PR. For the full write-up (how each issue was found, before/after code, trade-offs), see [NOTES.md](NOTES.md).
+A short section per phase. Every change shipped in its own PR (numbers in brackets). The long version, with before/after code for each fix, is in [NOTES.md](NOTES.md).
 
-## Bug fixes (Phase 1)
+---
 
-15 bugs fixed: B1–B12 each in their own PR, B16–B18 as part of the UI work.
+## Phase 1 — Make it run
 
-- **B1** — Polling now only refreshes your own dot, so closed tabs disappear from the map (PR #3)
-- **B2** — Chat messages now actually reach the other person (wrong message tag) (PR #4)
-- **B3** — Ending a chat frees both people instead of leaving them stuck as busy (PR #5)
-- **B4** — Connection candidates are applied after the offer, so calls stop failing at random (PR #6)
-- **B5** — Removed the fake Mapbox token, so a missing token shows a clear message (PR #7)
-- **B6** — Closing the tab mid-chat now ends the chat for the other person too (PR #8)
-- **B7** — You're put back on the map automatically if your dot was removed (PR #9)
-- **B8** — Declining a request no longer marks a busy person as free (PR #10)
-- **B9** — Stuck "Connecting…" now times out, and late accepts are rejected (PR #11)
-- **B10** — Connection errors are handled instead of silently stalling (PR #12)
-- **B11** — Dots move on the map when someone's position changes (PR #13)
-- **B12** — Busy dots can't be clicked and say "In a conversation" (PR #14)
-- **B16** — Chat stays visible during a video call (PR #19)
-- **B17** — Online count includes you, and the stats panel splits busy from available (PR #22)
-- **B18** — The Geist font now actually applies (PR #15)
+**How I found the bugs:** I traced the whole flow (join → poll → request → accept → WebRTC handshake → chat → video → end) through every API route and `lib/` module, asking at each step "what happens if this fails or runs out of order?" I confirmed each bug against a running dev server, using curl for the API.
 
-## UI/UX revamp (Phase 2)
+**What was broken, and how I fixed it:**
 
-Four screens rebuilt to the provided designs, plus two small follow-ups.
+| # | What was broken | How I found it | Fix | PR |
+|---|---|---|---|---|
+| B1 | Dots stayed on the map after people left | The README symptom pointed at stale presence. The reaper was correct, so I checked what keeps `lastSeen` fresh: the poll heartbeat updated **every** row | Heartbeat only the caller (`where: { id }`) | #3 |
+| B2 | Chat messages never arrived | Traced send → receive: the sender used `t: "msg"`, the receiver expected `t: "chat"` | Send `t: "chat"` | #4 |
+| B3 | Users stuck "busy" forever after a chat | The comment said `end` frees both peers, but no code handled `end` | `end` clears busy for both | #5 |
+| B4 | Connections failed at random | The ICE candidate queue was flushed one line *before* the remote description was set | Set the description first, then flush | #6 |
+| B5 | A missing Mapbox token gave a blank map, no hint | A hard-coded fake fallback token meant `!TOKEN` was never true | Remove the fallback | #7 |
+| B6 | Closing the tab didn't end the chat for the other person | `leave` only deleted rows (including the peer's pending signals), and there was no data-channel `onclose` | Leave frees and notifies the peer, and the client treats channel close as a hang-up | #8 |
+| B7 | Users silently vanished (background tabs, back button, failed join) | Asked "what recreates a presence row?" Nothing did | Poll returns `joined`, the client re-joins, `leave` skips bfcache | #9 |
+| B8 | A busy user showed as free after auto-declining someone | Checked who can be busy whenever `decline` is sent | Decline no longer touches busy | #10 |
+| B9 | "Connecting…" could hang forever | Checked every connection state for an exit; `connecting` had none | 20 s connect timeout, and stale accepts get `end` | #11 |
+| B10 | Negotiation errors stalled calls silently | Searched for empty `catch {}` and `void`-ed promises | Errors handled and reported, so the UI recovers | #12 |
+| B11 | Dots didn't move when a position changed | The map reconcile only updated opacity | Update the marker position too | #13 |
+| B12 | Busy dots were clickable and showed a misleading "Request declined" | The click handler never checked the target's busy flag | Busy dots disabled, with an "In a conversation" tooltip | #14 |
 
-- **Landing page** — Animated dotted globe, "Find someone out there." hero, Enter Pulse button, info chips (PR #15)
-- **Enter Pulse pointer cursor** — Included in the landing PR (PR #15)
-- **Chat panel** — Side panel on desktop, bottom sheet on mobile, bubbles, typing dots, skip and end buttons (PR #16)
-- **Chat time and place** — 12-hour timestamps and the stranger's city and country in the header (PR #17)
-- **Request prompts** — Countdown modals for outgoing, incoming, timed-out, declined and expired requests, plus video request cards with a camera preview (PR #18)
-- **Video call** — Full video stage with timer, mic and camera toggles, Show map, End video, and chat kept open beside it (PR #19)
+Also fixed during Phase 2: chat was hidden during video (B16, #19), the online count was unclear (B17, #22), and the Geist font was overridden (B18, #15).
 
-## Security revamp (Phase 3)
+**Left for later (minor):** B13 overlapping notices, B14 a timer ref not nulled, B15 transceivers pile up across repeated video calls, B19 secure-context errors on plain-http LAN testing, B20 a leftover ngrok dev host, B21 setup docs say `db push` but the repo ships migrations.
 
-7 of the 10 security issues fixed (S1–S6 and S10).
+---
 
-- **S1 — Session tokens** — The server issues each user a secret token, so nobody can act as someone else just by knowing their id (PR #24)
-- **S2 — Connection tracking** — The server remembers who requested and who is connected to whom, so fake accepts and ends are refused (PR #25)
-- **S3 — Rate limiting** — Limits on sessions, joins, polls, signals and repeat requests to the same person; 16 KB payload cap (PR #26)
-- **S4 — Location privacy** — No map data without joining, and dots snap to a fixed point in a ~2 km square so re-joins can't be averaged to find someone's home (PR #27)
-- **S5 — IP exposure** — Optional "Hide my IP" relay mode with short-lived relay credentials (PR #28)
-- **S6 — Input validation** — Request size caps, payload shape checks, a database enum for signal types, and limits on peer-to-peer messages (PR #29)
-- **S10 — Control messages** — Only known control values are accepted between browsers (PR #29)
+## Phase 2 — Make it good
 
-## New features (Phase 4)
+**What I changed:**
+- **Landing (#15):** animated dotted globe, a bold "Find someone out there." hero, one clear Enter Pulse button, and privacy chips.
+- **Chat panel (#16, #17):**
+  - a side panel on desktop and a bottom sheet on mobile
+  - message bubbles, 12-hour times and a typing indicator
+  - the stranger's city and country in the header
+  - skip and end buttons
+- **Request prompts (#18):**
+  - a countdown ring on every request
+  - separate cards for incoming, outgoing, timed out, declined and expired
+  - distance and approximate location of the stranger
+  - video requests with a live camera preview
+- **Video call (#19):**
+  - full-stage video with a timer, mic and camera toggles, and a Show map mode
+  - End video kept separate from End chat
+  - chat stays open beside the video
 
-Three features shipped, plus one switched off until a relay server exists.
+**The thinking behind it:**
+- **The globe is the product.** Every screen keeps the "talking to a dot somewhere on Earth" feeling: the landing globe, the map staying visible beside chat, and Show map during calls.
+- **Make waiting and outcomes visible.** Countdowns show how long a request lasts. Outcome cards say *why* something ended (they declined, nobody answered, it expired) instead of a vague toast.
+- **Text is the safety valve.** Video sits beside chat, never over it, so you can say "your audio is broken" without hanging up. Ending video drops you back to text with the same person.
+- **One consistent system:** dark theme, one accent colour, the Geist font, mobile bottom sheets, and `prefers-reduced-motion`, focus rings and aria labels throughout.
 
-- **Safe Reveal (safe video)** — Video starts fully blurred; each person's "Reveal me" slider sets how clearly the other sees them; an eye button re-hides the stranger; a panic button blocks the stranger and gives you a new identity (PR #20)
-- **Stay hidden after panic** — After a panic you stay off the map until you tap Go back, then reappear after a random 30–90 s delay (PR #21, re-opened against main as PR #23)
-- **Floating live stats** — Draggable, minimizable panel with totals, a per-continent breakdown, and nearby dots grouped by city with search and filters; online count moved to the top right (PR #22)
-- **Hide my IP card switched off** — The landing-page switch only shows once a relay server is configured (PR #30)
+---
 
-## Setup and database changes
+## Phase 3 — Make it secure
 
-Schema changes were applied to the dev database with `npx prisma db push`; production still needs them.
+**Issues found, ranked:**
 
-- **Presence table** — Added `requestTo` and `peerId` columns (S2)
-- **RateLimit table** — New table for rate-limit counters (S3)
-- **Signal type** — Changed from text to a database enum (S6)
-- **New env vars in `.env.example`** — `SESSION_SECRET` (required in production), `TURN_URLS` and `TURN_SECRET` (optional relay)
-- **New API routes** — `/api/session` (start a session) and `/api/ice` (connection and relay settings)
-- **Notes** — `NOTES.md` (full write-up) and this simplified list
+| Rank | Issue | Severity | Status |
+|---|---|---|---|
+| S1 | No auth: every session id was public and was the only credential, so anyone could read, impersonate, kick or move another user | 🔴 Critical | ✅ #24 |
+| S2 | Busy-flag DoS: forged `accept`/`end` could mark anyone busy or end anyone's chat | 🔴 Critical | ✅ #25 |
+| S3 | No rate limiting: request spam, unlimited sessions, join/poll hammering | 🟠 High | ✅ #26 |
+| S4 | Location scraping without joining, and repeated re-joins could be averaged to find someone's home | 🟠 High | ✅ #27 |
+| S5 | Peer-to-peer WebRTC shows each stranger the other's IP address | 🟠 High | ✅ #28 (relay ready, switched off: #30) |
+| S6 | Weak input validation: unlimited body sizes, any payload relayed, no limits on peer messages | 🟠 High | ✅ #29 |
+| S7 | Database errors surface as unlogged 500s | 🟡 Medium | Not fixed |
+| S8 | No security headers (CSP, Permissions-Policy, …) | 🟡 Medium | Not fixed |
+| S9 | Mapbox token not restricted to the site's URL | 🟡 Medium | Not fixed (dashboard setting) |
+| S10 | Unvalidated control messages between browsers | 🟡 Low | ✅ #29 |
 
-## Still to do
+**What I fixed:**
+- **S1:** the server issues each session a public id plus a signed secret token, and every route takes the caller's identity from the token, never from the request.
+- **S2:** the server tracks who requested whom and who is connected, and refuses signals that don't fit.
+- **S3:** rate limits stored in Postgres, so they hold across serverless instances: sessions, joins, polls, signals, and 3 requests per 5 min to the same person.
+- **S4:** no map data until you join. Dots snap to a fixed point in a ~2 km square, so averaging re-joins only finds the square.
+- **S5:** an opt-in "Hide my IP" relay-only mode with short-lived TURN credentials. It's hidden until a relay server is configured.
+- **S6:** body size caps, payload shape checks per signal type, a database enum, and size, length and flood limits on peer-to-peer messages (this also fixes S10).
 
-Urgent items first; the rest can wait for a future pass.
+**Why S7–S9 come next:** each is small. Restricting the token (S9) is a dashboard setting, and headers (S8) and error handling (S7) are quick hardening. They ranked below the fixes above, which closed real attacks.
 
-**Urgent**
+---
 
-- [ ] Set `SESSION_SECRET` in Vercel (the app can't start sessions in production without it)
-- [ ] Add a migration for the S2, S3 and S6 schema changes, or document `db push`, and apply them to the production database
-- [ ] Run a full two-browser test of chat, video, reveal, panic, skip and stats
-- [ ] Restrict the Mapbox token to the site's URL (S9)
-- [ ] Add error handling and logging to the API routes (S7)
-- [ ] Add security headers (S8)
-- [ ] Fix the request-modal wording "They can't see yours until they accept"
-- [ ] Deploy to Vercel
+## Phase 4 — Make it better
 
-**Future**
+**What I built:**
+- **Safe Reveal (#20, #23):**
+  - video starts **fully blurred**
+  - each person's **Reveal me** slider sets how clearly the *other* person sees them, with a "Stranger is revealing… 40%" chip
+  - an eye button re-hides the stranger at any time
+  - a **panic button** ends the chat, blocks the stranger, and puts you back as a new identity after a random 30–90 s delay, so the blocked person can't link your new dot to you
+- **Floating live stats (#22):**
+  - a draggable, minimizable panel with live totals and a per-continent breakdown
+  - "dots near you" grouped by city, with search and distance/status filters
 
-- [ ] Minor bugs B13, B14, B15, B19, B20
-- [ ] Lighter polling and missing indexes (P1–P4)
-- [ ] Sender-side blur for Safe Reveal
-- [ ] On-device NSFW guard
-- [ ] A TURN relay server for Hide my IP
-- [ ] Stronger blocking with server-side reports
+**Why:**
+- **Safe Reveal** targets the biggest real-world risk of anonymous video chat: unwanted content the moment the camera turns on. Consent comes first, each person stays in control of their own image, and no video ever reaches the server.
+- **Live stats** makes the globe feel alive. You can see how many people are out there, where they are, and who's nearby and free.
+
+**What I'd do next with more time:**
+- **Sender-side blur:** blur frames before sending them, so a modified client or DevTools can't remove the blur.
+- **An on-device NSFW guard** (TensorFlow.js / NSFWJS) that re-blurs explicit frames automatically. It was planned and skipped by choice.
+- **A TURN relay server**, so Hide my IP can be switched on.
+- **Server-side anonymous reports**, so blocking survives reloads.
+- **More "alive" touches:** animated arcs between connected dots, and a day/night layer.
+
+---
+
+## Setup notes
+
+- **Schema:** S2 (`requestTo`, `peerId`), S3 (`RateLimit`) and S6 (`SignalType` enum) need `npx prisma db push` on the production database.
+- **Env vars:** set `SESSION_SECRET` (32+ random characters) in production. `TURN_URLS` and `TURN_SECRET` are optional.
+- **Still to do before shipping:** a full two-browser end-to-end test, S7–S9, and a fix for the request-modal line "They can't see yours until they accept" (every dot is public).
