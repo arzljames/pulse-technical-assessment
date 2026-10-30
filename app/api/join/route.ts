@@ -4,6 +4,7 @@ import { isValidLatLng } from "@/lib/geo";
 import { placeDot } from "@/lib/privacy";
 import { sessionFrom, unauthorized } from "@/lib/session";
 import { clientIp, MINUTE, rateLimit } from "@/lib/rateLimit";
+import { readJson } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,14 +23,9 @@ export async function POST(request: NextRequest) {
   );
   if (limited) return limited;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "invalid body" }, { status: 400 });
-  }
-
-  const { lat, lng } = (body ?? {}) as Record<string, unknown>;
+  const parsed = await readJson(request, 1024);
+  if (!parsed.ok) return parsed.response;
+  const { lat, lng } = parsed.body;
 
   if (!isValidLatLng(lat, lng)) {
     return Response.json({ error: "invalid coordinates" }, { status: 400 });

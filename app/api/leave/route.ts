@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/session";
+import { readJson } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,15 +16,10 @@ export const dynamic = "force-dynamic";
 // Called via navigator.sendBeacon on tab close, which can't set headers, so
 // the session token travels in the body (and the body may arrive as text).
 export async function POST(request: NextRequest) {
-  let token: unknown;
-  try {
-    const text = await request.text();
-    token = text ? JSON.parse(text)?.token : undefined;
-  } catch {
-    token = undefined;
-  }
+  const parsed = await readJson(request, 1024);
+  if (!parsed.ok) return parsed.response;
 
-  const id = verifyToken(token);
+  const id = verifyToken(parsed.body.token);
   if (!id) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }

@@ -6,6 +6,25 @@ export type PeerControl =
   | "video-end"
   | "typing"; // ephemeral "stranger is typing" hint, never displayed as text
 
+const CONTROLS: readonly string[] = [
+  "video-request",
+  "video-accept",
+  "video-decline",
+  "video-end",
+  "typing",
+] satisfies PeerControl[];
+
+// Limits on what the other browser can send us (S6). Data channel messages
+// skip the server entirely, so the receiving client is the only place to
+// enforce them.
+export const MAX_CHAT_CHARS = 2000; // same as the composer's maxLength
+const MAX_MESSAGE_BYTES = 8 * 1024; // a chat message is at most ~8 KB of JSON
+// Chat flood guard: at most this many chat messages per window; the rest are
+// dropped. (Reveal and control messages only update state, latest wins, so
+// they aren't counted: a fast reveal-slider drag must not lose its last value.)
+const FLOOD_MAX = 30;
+const FLOOD_WINDOW_MS = 5_000;
+
 interface PeerCallbacks {
   onSignal: (type: DescType, payload: string) => void;
   onChat: (text: string) => void;
@@ -43,6 +62,7 @@ export class PeerSession {
   private closed = false;
   private readonly cb: PeerCallbacks;
   private pendingCandidates: RTCIceCandidateInit[] = [];
+  private recentMessages: number[] = [];
 
   // `config` comes from /api/ice. With iceTransportPolicy "relay" only TURN
   // candidates are gathered, so the peer never learns our public IP.
@@ -97,11 +117,15 @@ export class PeerSession {
       if (!this.closed) this.cb.onChannelClose();
     };
     dc.onmessage = (e) => {
+      // Text frames only, and small enough to be one of ours.
+      if (typeof e.data !== "string" || e.data.length > MAX_MESSAGE_BYTES) return;
       try {
-        const msg = JSON.parse(e.data as string);
+        const msg = JSON.parse(e.data);
         if (msg.t === "chat" && typeof msg.text === "string") {
-          this.cb.onChat(msg.text);
-        } else if (msg.t === "ctrl" && typeof msg.ctrl === "string") {
+          if (this.flooding()) return;
+          const text = msg.text.trim();
+          if (text && text.length <= MAX_CHAT_CHARS) this.cb.onChat(text);
+        } else if (msg.t === "ctrl" && CONTROLS.includes(msg.ctrl)) {
           this.cb.onControl(msg.ctrl as PeerControl);
         } else if (msg.t === "reveal" && typeof msg.level === "number") {
           const level = clampLevel(msg.level);
@@ -109,6 +133,15 @@ export class PeerSession {
         }
       } catch {}
     };
+  }
+
+  // True when the peer has sent more than FLOOD_MAX chat messages in the last
+  // FLOOD_WINDOW_MS (this one included).
+  private flooding(): boolean {
+    const now = Date.now();
+    this.recentMessages = this.recentMessages.filter((t) => now - t < FLOOD_WINDOW_MS);
+    this.recentMessages.push(now);
+    return this.recentMessages.length > FLOOD_MAX;
   }
 
   // Never rejects: malformed payloads and individual ICE failures are logged

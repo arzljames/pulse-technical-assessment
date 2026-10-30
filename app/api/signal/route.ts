@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { SignalType } from "@/lib/types";
 import { isSessionId, sessionFrom, unauthorized } from "@/lib/session";
 import { clientIp, MINUTE, rateLimit } from "@/lib/rateLimit";
+import { readJson } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,41 @@ const VALID_TYPES: SignalType[] = [
 
 // A video SDP is a few KB and an ICE candidate a few hundred bytes.
 const MAX_PAYLOAD = 16 * 1024;
+// Payload plus ids and JSON overhead.
+const MAX_BODY = MAX_PAYLOAD + 1024;
+
+// Payload shape per signal type (S6): only what the client actually sends
+// gets relayed to the other browser.
+//   request / accept / end   no payload
+//   decline                  none, or "timeout"
+//   offer / answer           JSON RTCSessionDescription of that type
+//   ice                      JSON RTCIceCandidate
+function validPayload(type: SignalType, payload: string | null): boolean {
+  switch (type) {
+    case "request":
+    case "accept":
+    case "end":
+      return payload === null;
+    case "decline":
+      return payload === null || payload === "timeout";
+    case "offer":
+    case "answer":
+    case "ice": {
+      if (payload === null) return false;
+      let v: unknown;
+      try {
+        v = JSON.parse(payload);
+      } catch {
+        return false;
+      }
+      if (typeof v !== "object" || v === null) return false;
+      const o = v as Record<string, unknown>;
+      return type === "ice"
+        ? typeof o.candidate === "string"
+        : o.type === type && typeof o.sdp === "string";
+    }
+  }
+}
 
 // POST /api/signal — body { toId, type, payload? }, Bearer session token.
 // Drops one message into the recipient's mailbox, always from the token's
@@ -44,14 +80,9 @@ export async function POST(request: NextRequest) {
   );
   if (limited) return limited;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "invalid body" }, { status: 400 });
-  }
-
-  const { toId, type, payload } = (body ?? {}) as Record<string, unknown>;
+  const parsed = await readJson(request, MAX_BODY);
+  if (!parsed.ok) return parsed.response;
+  const { toId, type, payload } = parsed.body;
 
   if (!isSessionId(toId) || toId === fromId) {
     return Response.json({ error: "invalid toId" }, { status: 400 });
@@ -69,6 +100,9 @@ export async function POST(request: NextRequest) {
 
   const signalType = type as SignalType;
   const payloadStr = typeof payload === "string" ? payload : null;
+  if (!validPayload(signalType, payloadStr)) {
+    return Response.json({ error: "invalid payload" }, { status: 400 });
+  }
 
   switch (signalType) {
     case "request": {
