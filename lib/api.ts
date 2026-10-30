@@ -26,6 +26,22 @@ export async function createSession(): Promise<Session> {
   return res.json();
 }
 
+export interface IceConfig {
+  relayAvailable: boolean;
+  iceServers?: RTCIceServer[];
+}
+
+// Without a token: just whether a TURN relay is configured (for the landing
+// page). With one: ICE servers including short-lived TURN credentials.
+export async function getIceConfig(token?: string): Promise<IceConfig> {
+  const res = await fetch("/api/ice", {
+    cache: "no-store",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!res.ok) throw new Error(`ice failed: ${res.status}`);
+  return res.json();
+}
+
 export async function join(token: string, lat: number, lng: number): Promise<void> {
   const res = await fetch("/api/join", {
     method: "POST",
