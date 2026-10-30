@@ -29,7 +29,7 @@ export default function HiddenBanner({
         {rejoinAt === null ? (
           <>
             <p className="text-sm font-semibold">You&rsquo;re hidden from the map</p>
-            <p className="text-xs text-zinc-400">No one can see or request you.</p>
+            <p className="text-xs text-zinc-400">No one can see or request you, and the map pauses.</p>
           </>
         ) : (
           <>

@@ -4,7 +4,7 @@
 // service.
 //
 // Privacy: the coordinates looked up are a peer's *public* dot position,
-// which is already privacy-offset 1–3 km and visible to everyone on the map.
+// which only reveals a ~2 km area and is visible to everyone on the map.
 // We only ask for city-level names.
 
 export interface Place {

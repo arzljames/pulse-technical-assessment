@@ -26,8 +26,8 @@ interface Copy {
   live: boolean; // countdown running?
 }
 
-const NOTE_REQUEST = "Locations are fuzzed 1–3 km. They can't see yours until they accept.";
-const NOTE_ACCEPT = "Locations are fuzzed 1–3 km. Accepting opens a private peer-to-peer chat.";
+const NOTE_REQUEST = "Locations are fuzzed to a ~2 km area. They can't see yours until they accept.";
+const NOTE_ACCEPT = "Locations are fuzzed to a ~2 km area. Accepting opens a private peer-to-peer chat.";
 
 function copyFor(kind: RequestModalKind, nearby: boolean): Copy {
   switch (kind) {

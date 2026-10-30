@@ -112,7 +112,7 @@ export default function EntryGate({
           style={rise(420)}
         >
           <Chip icon={<PersonIcon />}>No sign-up</Chip>
-          <Chip icon={<PinIcon />}>Dot placed 1–3 km from you</Chip>
+          <Chip icon={<PinIcon />}>Dot shows a ~2 km area, not you</Chip>
           <Chip icon={<LockIcon />}>Nothing stored</Chip>
         </ul>
       </main>

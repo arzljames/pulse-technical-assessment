@@ -35,6 +35,12 @@ function sign(id: string): string {
   return createHmac("sha256", secret()).update(id).digest("base64url");
 }
 
+// Keyed hash for other server-side uses (e.g. dot placement). Callers must
+// prefix their input (e.g. "dot:") so it can't collide with a session id.
+export function serverHmac(data: string): Buffer {
+  return createHmac("sha256", secret()).update(data).digest();
+}
+
 export function isSessionId(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
