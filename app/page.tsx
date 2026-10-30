@@ -58,6 +58,8 @@ const VIDEO_REQUEST_TIMEOUT_MS = 30_000;
 const DECLINE_TIMEOUT = "timeout";
 // Retry interval while the server can't start a session for us.
 const SESSION_RETRY_MS = 3_000;
+// Most chat messages kept on screen; older ones are dropped.
+const MAX_MESSAGES = 500;
 // TURN credentials last an hour; refresh well before that.
 const ICE_REFRESH_MS = 30 * 60_000;
 // After a panic, the earliest we reappear on the map is a random 30–90 s
@@ -154,7 +156,8 @@ export default function Home() {
 
   function addMessage(mine: boolean, text: string) {
     setMessages((prev) => [
-      ...prev,
+      // Keep memory bounded in very long chats (S6).
+      ...prev.slice(-(MAX_MESSAGES - 1)),
       { id: msgId.current++, mine, text, at: Date.now() },
     ]);
   }

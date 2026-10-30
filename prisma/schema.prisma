@@ -29,11 +29,22 @@ model Signal {
   id        String   @id @default(uuid())
   toId      String // recipient session id
   fromId    String // sender session id
-  type      String // request | accept | decline | offer | answer | ice | end
+  type      SignalType
   payload   String? // JSON string (SDP / ICE candidate)
   createdAt DateTime @default(now())
 
   @@index([toId])
+}
+
+// Enforced by the database too (S6), not just by the API route.
+enum SignalType {
+  request
+  accept
+  decline
+  offer
+  answer
+  ice
+  end
 }
 
 model RateLimit {
