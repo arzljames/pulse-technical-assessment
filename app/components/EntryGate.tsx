@@ -17,7 +17,7 @@ export default function EntryGate({
 }) {
   const [status, setStatus] = useState<"idle" | "locating" | "error">("idle");
   const [error, setError] = useState<string>("");
-  // null while checking whether the server has a TURN relay configured.
+  // Whether the server has a TURN relay configured (null while checking).
   const [relay, setRelay] = useState<boolean | null>(null);
   const [hideIp, setHideIp] = useState(false);
 
@@ -130,39 +130,38 @@ export default function EntryGate({
           </button>
         </div>
 
-        <div className="rise mt-5 w-full max-w-sm" style={rise(380)}>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={hideIp}
-            onClick={toggleHideIp}
-            disabled={relay !== true}
-            className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-line bg-surface/80 px-3.5 py-3 text-left backdrop-blur transition hover:border-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 disabled:cursor-default disabled:hover:border-line"
-          >
-            <span
-              aria-hidden
-              className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${
-                hideIp ? "bg-accent" : "bg-zinc-700"
-              } ${relay !== true ? "opacity-40" : ""}`}
+        {/* "Hide my IP" (S5) only appears when a TURN relay is configured
+            (TURN_URLS + TURN_SECRET); without one it's switched off. */}
+        {relay && (
+          <div className="rise mt-5 w-full max-w-sm" style={rise(380)}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={hideIp}
+              onClick={toggleHideIp}
+              className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-line bg-surface/80 px-3.5 py-3 text-left backdrop-blur transition hover:border-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
             >
               <span
-                className={`h-4 w-4 rounded-full bg-white transition ${hideIp ? "translate-x-4" : ""}`}
-              />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold">Hide my IP address</span>
-              <span className="mt-0.5 block text-xs leading-relaxed text-zinc-400">
-                {relay === null
-                  ? "Checking for a relay…"
-                  : relay
-                    ? hideIp
-                      ? "Chats and calls go through a relay, so strangers can't see your IP. Can be a little slower."
-                      : "Chats connect directly, so the person you talk to can see your IP address (roughly your city and network). Turn this on to use a relay."
-                    : "Chats connect directly, so the person you talk to can see your IP address (roughly your city and network). A relay isn't set up on this server."}
+                aria-hidden
+                className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${
+                  hideIp ? "bg-accent" : "bg-zinc-700"
+                }`}
+              >
+                <span
+                  className={`h-4 w-4 rounded-full bg-white transition ${hideIp ? "translate-x-4" : ""}`}
+                />
               </span>
-            </span>
-          </button>
-        </div>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">Hide my IP address</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-zinc-400">
+                  {hideIp
+                    ? "Chats and calls go through a relay, so strangers can't see your IP. Can be a little slower."
+                    : "Chats connect directly, so the person you talk to can see your IP address (roughly your city and network). Turn this on to use a relay."}
+                </span>
+              </span>
+            </button>
+          </div>
+        )}
 
         <div
           role="alert"
