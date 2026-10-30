@@ -11,6 +11,7 @@ import HiddenBanner from "./components/HiddenBanner";
 import StatsPanel from "./components/StatsPanel";
 import {
   createSession,
+  getIceConfig,
   join,
   leave,
   poll,
@@ -18,7 +19,7 @@ import {
   UnauthorizedError,
   type Session,
 } from "@/lib/api";
-import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
+import { DEFAULT_ICE, PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
 import { distanceKm, formatDistance } from "@/lib/geo";
 import { formatCityCountry, formatNear, reverseGeocode, type Place } from "@/lib/geocode";
@@ -57,6 +58,8 @@ const VIDEO_REQUEST_TIMEOUT_MS = 30_000;
 const DECLINE_TIMEOUT = "timeout";
 // Retry interval while the server can't start a session for us.
 const SESSION_RETRY_MS = 3_000;
+// TURN credentials last an hour; refresh well before that.
+const ICE_REFRESH_MS = 30 * 60_000;
 // After a panic, the earliest we reappear on the map is a random 30–90 s
 // later, so the blocked stranger can't link the new dot to the old one.
 const PANIC_HIDE_MIN_MS = 30_000;
@@ -128,6 +131,10 @@ export default function Home() {
   };
 
   const peerRef = useRef<PeerSession | null>(null);
+  // ICE servers from /api/ice (STUN, plus TURN when configured), and whether
+  // the user chose "Hide my IP" (relay-only) on the landing page. (S5)
+  const iceRef = useRef<RTCConfiguration>(DEFAULT_ICE);
+  const hideIpRef = useRef(false);
   // Raw location, kept client-side only so we can re-join if our presence
   // row is reaped. Never sent anywhere except /api/join.
   const locationRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -241,6 +248,12 @@ export default function Home() {
   }
 
   function startPeer(peerId: string, initiator: boolean) {
+    const ice = iceRef.current;
+    // Relay-only: gather TURN candidates only, so the stranger never sees our
+    // IP. Without a TURN server this can't connect, which is the safe failure.
+    const config: RTCConfiguration = hideIpRef.current
+      ? { ...ice, iceTransportPolicy: "relay" }
+      : ice;
     const ps = new PeerSession(initiator, {
       onSignal: (type: DescType, payload: string) => {
         void sendSignal(token, peerId, type, payload);
@@ -284,7 +297,7 @@ export default function Home() {
           showNotice("Video couldn't start.");
         }
       },
-    });
+    }, config);
     peerRef.current = ps;
   }
 
@@ -692,6 +705,26 @@ export default function Home() {
     processSignalRef.current = processSignal;
   });
 
+  // ICE servers for this session (TURN credentials are tied to it), refreshed
+  // before they expire. On failure we keep the last config (or STUN only).
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    const load = () =>
+      getIceConfig(token).then(
+        (cfg) => {
+          if (active && cfg.iceServers) iceRef.current = { iceServers: cfg.iceServers };
+        },
+        () => {},
+      );
+    void load();
+    const id = setInterval(load, ICE_REFRESH_MS);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [token]);
+
   // Get a session from the server once we're live (and again after a panic
   // or a rejected token), retrying until it works.
   useEffect(() => {
@@ -793,7 +826,8 @@ export default function Home() {
 
   // Location granted: go live. The session effect then gets a token, and the
   // first poll (joined=false) puts us on the map.
-  function handleReady(lat: number, lng: number) {
+  function handleReady(lat: number, lng: number, hideIp: boolean) {
+    hideIpRef.current = hideIp;
     setMyLocation({ lat, lng });
     locationRef.current = { lat, lng };
     setPhase("live");

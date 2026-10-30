@@ -1,7 +1,10 @@
 "use client";
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import DotGlobe from "./DotGlobe";
+import { getIceConfig } from "@/lib/api";
+
+const HIDE_IP_KEY = "pulse.hideIp";
 
 const rise = (ms: number) =>
   ({ "--rise-delay": `${ms}ms` }) as CSSProperties;
@@ -9,10 +12,37 @@ const rise = (ms: number) =>
 export default function EntryGate({
   onReady,
 }: {
-  onReady: (lat: number, lng: number) => void;
+  // hideIp: connect relay-only so strangers never see our IP (S5).
+  onReady: (lat: number, lng: number, hideIp: boolean) => void;
 }) {
   const [status, setStatus] = useState<"idle" | "locating" | "error">("idle");
   const [error, setError] = useState<string>("");
+  // null while checking whether the server has a TURN relay configured.
+  const [relay, setRelay] = useState<boolean | null>(null);
+  const [hideIp, setHideIp] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getIceConfig().then(
+      (cfg) => {
+        if (!active) return;
+        setRelay(cfg.relayAvailable);
+        if (cfg.relayAvailable && localStorage.getItem(HIDE_IP_KEY) === "1") setHideIp(true);
+      },
+      () => active && setRelay(false),
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function toggleHideIp() {
+    const next = !hideIp;
+    setHideIp(next);
+    try {
+      localStorage.setItem(HIDE_IP_KEY, next ? "1" : "0");
+    } catch {}
+  }
 
   function enter() {
     if (!("geolocation" in navigator)) {
@@ -22,7 +52,8 @@ export default function EntryGate({
     }
     setStatus("locating");
     navigator.geolocation.getCurrentPosition(
-      (pos) => onReady(pos.coords.latitude, pos.coords.longitude),
+      (pos) =>
+        onReady(pos.coords.latitude, pos.coords.longitude, hideIp && relay === true),
       (err) => {
         setStatus("error");
         setError(
@@ -95,6 +126,40 @@ export default function EntryGate({
             {locating ? "Locating you…" : "Enter Pulse"}
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-accent transition group-hover:translate-x-0.5">
               {locating ? <Spinner /> : <ArrowIcon />}
+            </span>
+          </button>
+        </div>
+
+        <div className="rise mt-5 w-full max-w-sm" style={rise(380)}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={hideIp}
+            onClick={toggleHideIp}
+            disabled={relay !== true}
+            className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-line bg-surface/80 px-3.5 py-3 text-left backdrop-blur transition hover:border-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 disabled:cursor-default disabled:hover:border-line"
+          >
+            <span
+              aria-hidden
+              className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${
+                hideIp ? "bg-accent" : "bg-zinc-700"
+              } ${relay !== true ? "opacity-40" : ""}`}
+            >
+              <span
+                className={`h-4 w-4 rounded-full bg-white transition ${hideIp ? "translate-x-4" : ""}`}
+              />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">Hide my IP address</span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-zinc-400">
+                {relay === null
+                  ? "Checking for a relay…"
+                  : relay
+                    ? hideIp
+                      ? "Chats and calls go through a relay, so strangers can't see your IP. Can be a little slower."
+                      : "Chats connect directly, so the person you talk to can see your IP address (roughly your city and network). Turn this on to use a relay."
+                    : "Chats connect directly, so the person you talk to can see your IP address (roughly your city and network). A relay isn't set up on this server."}
+              </span>
             </span>
           </button>
         </div>

@@ -28,7 +28,8 @@ function clampLevel(level: number): number | null {
   return Math.min(1, Math.max(0, level));
 }
 
-const ICE_CONFIG: RTCConfiguration = {
+// Fallback when /api/ice couldn't be reached: STUN only (direct connection).
+export const DEFAULT_ICE: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
@@ -43,10 +44,12 @@ export class PeerSession {
   private readonly cb: PeerCallbacks;
   private pendingCandidates: RTCIceCandidateInit[] = [];
 
-  constructor(initiator: boolean, cb: PeerCallbacks) {
+  // `config` comes from /api/ice. With iceTransportPolicy "relay" only TURN
+  // candidates are gathered, so the peer never learns our public IP.
+  constructor(initiator: boolean, cb: PeerCallbacks, config: RTCConfiguration = DEFAULT_ICE) {
     this.cb = cb;
     this.polite = !initiator;
-    this.pc = new RTCPeerConnection(ICE_CONFIG);
+    this.pc = new RTCPeerConnection(config);
 
     this.pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
