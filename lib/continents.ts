@@ -1,5 +1,5 @@
 // Rough continent for a coordinate, from a handful of lat/lng boxes. Good
-// enough for the live stats bars (dots are already fuzzed 1–3 km), not for
+// enough for the live stats bars (dots are already fuzzed to ~2 km), not for
 // anything that needs real borders.
 
 export const CONTINENTS = [

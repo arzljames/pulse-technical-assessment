@@ -67,8 +67,9 @@ export async function GET(request: NextRequest) {
   // Old rate-limit counters: sweep occasionally rather than on every poll.
   if (Math.random() < 0.02) await sweepRateLimits();
 
-  // 3) Online peers, excluding self.
-  const peers = await prisma.presence.findMany({
+  // 3) Online peers, excluding self — only for sessions that are on the map
+  // themselves (S4), so the dot positions can't be scraped without joining.
+  const peers = heartbeat.count === 0 ? [] : await prisma.presence.findMany({
     where: {
       id: { not: id },
       lastSeen: { gte: staleCutoff },

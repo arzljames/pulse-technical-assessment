@@ -486,7 +486,7 @@ export default function StatsPanel({
       </div>
 
       <p className="flex items-center gap-1.5 border-t border-line px-3.5 py-2.5 text-[9.5px] text-zinc-500">
-        <LockIcon size={10} /> Areas and distances are fuzzed 1–3 km. No names, ever.
+        <LockIcon size={10} /> Locations are fuzzed to a ~2 km area. No names, ever.
       </p>
     </section>
   );

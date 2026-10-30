@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { applyPrivacyOffset, isValidLatLng } from "@/lib/geo";
+import { isValidLatLng } from "@/lib/geo";
+import { placeDot } from "@/lib/privacy";
 import { sessionFrom, unauthorized } from "@/lib/session";
 import { clientIp, MINUTE, rateLimit } from "@/lib/rateLimit";
 
@@ -8,8 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // POST /api/join — body { lat, lng } (raw coords), Bearer session token.
-// Applies a 1–3 km privacy offset and upserts the caller's presence row. Raw
-// coordinates are never stored.
+// Places the dot at the caller's ~2 km grid cell anchor (see lib/privacy.ts)
+// and upserts their presence row. Raw coordinates are never stored.
 export async function POST(request: NextRequest) {
   const id = sessionFrom(request);
   if (!id) return unauthorized();
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "invalid coordinates" }, { status: 400 });
   }
 
-  const offset = applyPrivacyOffset(lat as number, lng as number);
+  const offset = placeDot(lat as number, lng as number);
 
   await prisma.presence.upsert({
     where: { id },
