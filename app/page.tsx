@@ -495,12 +495,15 @@ export default function Home() {
     setConn({ kind: "idle" });
   }
 
-  function endConnection() {
+  // Resolves once the server has processed the "end" (and freed us).
+  function endConnection(): Promise<void> {
     const c = connRef.current;
-    if (c.kind === "connecting" || c.kind === "connected") {
-      void sendSignal(token, c.peerId, "end");
-    }
+    const ended =
+      c.kind === "connecting" || c.kind === "connected"
+        ? sendSignal(token, c.peerId, "end").catch(() => {})
+        : Promise.resolve();
     teardown();
+    return ended;
   }
 
   // A random stranger who's free, other than `exclude`.
@@ -524,8 +527,11 @@ export default function Home() {
   function skipToNext() {
     const c = connRef.current;
     const current = c.kind === "idle" ? null : c.peerId;
-    endConnection();
-    requestRandom(current);
+    // The server only accepts a request from a free session, so wait for the
+    // "end" to land before sending it.
+    void endConnection().then(() => {
+      if (connRef.current.kind === "idle") requestRandom(current);
+    });
   }
 
   // Panic button: end everything, block this stranger, and go off the map
@@ -541,7 +547,7 @@ export default function Home() {
       setBlocked(next);
     }
     // Deletes our presence row and ends the chat for the stranger.
-    leave(token, peerId);
+    leave(token);
     teardown("Stranger blocked.");
     setOutcome(null);
     setPeers([]);
@@ -741,8 +747,7 @@ export default function Home() {
       // Going into the back/forward cache, not unloading: keep the session.
       // If it's restored after STALE_MS, the next poll re-joins.
       if (e.persisted) return;
-      const c = connRef.current;
-      leave(token, c.kind === "idle" ? undefined : c.peerId);
+      leave(token);
     };
     window.addEventListener("pagehide", onLeave);
     return () => {

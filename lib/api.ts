@@ -59,11 +59,11 @@ export async function sendSignal(
   });
 }
 
-// Fire-and-forget leave that survives the tab closing. Pass the current peer
-// (if any) so the server can end the connection for them too. sendBeacon
-// can't set headers, so the token goes in the body.
-export function leave(token: string, peerId?: string): void {
-  const body = JSON.stringify({ token, peerId });
+// Fire-and-forget leave that survives the tab closing. The server ends any
+// connection or request we're part of from its own state. sendBeacon can't
+// set headers, so the token goes in the body.
+export function leave(token: string): void {
+  const body = JSON.stringify({ token });
   if (typeof navigator !== "undefined" && navigator.sendBeacon) {
     navigator.sendBeacon("/api/leave", body);
   } else {

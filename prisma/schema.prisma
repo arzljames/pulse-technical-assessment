@@ -17,6 +17,9 @@ model Presence {
   lng      Float
   busy     Boolean  @default(false) // true while in an active connection
   lastSeen DateTime
+  // Server-side connection state (S2), so signals can be checked against it:
+  requestTo String? // session we have an outstanding request to
+  peerId    String? // session we're connected to (set on accept, with busy)
 
   @@index([lastSeen])
 }

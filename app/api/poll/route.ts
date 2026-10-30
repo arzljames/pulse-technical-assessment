@@ -29,7 +29,36 @@ export async function GET(request: NextRequest) {
 
   // 2) Reap stale presence rows and orphaned signals (independent deletes —
   // no atomicity needed, and avoids transactions over a PgBouncer pooler).
-  await prisma.presence.deleteMany({ where: { lastSeen: { lt: staleCutoff } } });
+  const stale = await prisma.presence.findMany({
+    where: { lastSeen: { lt: staleCutoff } },
+    select: { id: true },
+  });
+  if (stale.length > 0) {
+    const staleIds = stale.map((s) => s.id);
+    await prisma.presence.deleteMany({
+      where: { id: { in: staleIds }, lastSeen: { lt: staleCutoff } },
+    });
+    // Free anyone connected to a reaped session and tell them it ended;
+    // drop requests aimed at one. (S2: connection state must not point at
+    // sessions that no longer exist.)
+    const orphaned = await prisma.presence.findMany({
+      where: { peerId: { in: staleIds } },
+      select: { id: true, peerId: true },
+    });
+    if (orphaned.length > 0) {
+      await prisma.presence.updateMany({
+        where: { peerId: { in: staleIds } },
+        data: { busy: false, peerId: null },
+      });
+      await prisma.signal.createMany({
+        data: orphaned.map((o) => ({ fromId: o.peerId!, toId: o.id, type: "end" })),
+      });
+    }
+    await prisma.presence.updateMany({
+      where: { requestTo: { in: staleIds } },
+      data: { requestTo: null },
+    });
+  }
   await prisma.signal.deleteMany({ where: { createdAt: { lt: signalCutoff } } });
 
   // 3) Online peers, excluding self.
